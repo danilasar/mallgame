@@ -1,9 +1,12 @@
 use bevy::prelude::*;
 
+use super::prototypes::BuildPrototypeId;
+
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct WorldPos(pub Vec2);
 
 #[derive(Component, Debug, Clone, Copy, Default)]
+#[allow(dead_code)]
 pub struct Velocity(pub Vec2);
 
 #[derive(Component, Debug, Clone, Copy, Default)]
@@ -43,43 +46,63 @@ impl SortLayer {
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct SortBias(pub f32);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum PlacementState {
-    Placed,
-    Dragging,
-    Preview,
-    Blocked,
+#[derive(Component, Debug, Clone)]
+pub struct Footprint {
+    pub local_polygon: Vec<Vec2>,
 }
 
-#[derive(Component, Debug, Clone, Copy, Default)]
-pub struct InteractionState {
-    pub selected: bool,
-    pub hovered: bool,
-}
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct Draggable;
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct Selectable;
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct SelectionTint {
-    pub normal: Color,
-    pub selected: Color,
-    pub dragging: Color,
-    pub blocked: Color,
-}
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct PlaceableAssetId(pub &'static str);
-
-/// Continuous collision shape around the object's base in simulation world space.
-#[derive(Component, Debug, Clone, Copy)]
-pub struct CollisionFootprint {
-    pub half_extents: Vec2,
+impl Footprint {
+    pub fn rectangle(half_extents: Vec2) -> Self {
+        Self {
+            local_polygon: vec![
+                Vec2::new(-half_extents.x, -half_extents.y),
+                Vec2::new(half_extents.x, -half_extents.y),
+                Vec2::new(half_extents.x, half_extents.y),
+                Vec2::new(-half_extents.x, half_extents.y),
+            ],
+        }
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BlocksPlacement;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Interactive;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Movable;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Deletable;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BuildGhost;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct GhostOf {
+    pub prototype: BuildPrototypeId,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Selected;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HighlightIntent {
+    pub kind: HighlightKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum HighlightKind {
+    Hover,
+    Selected,
+    MoveValid,
+    MoveInvalid,
+    DeleteDanger,
+    BuildValid,
+    BuildInvalid,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PlaceableAssetId(pub &'static str);

@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 
-use crate::components::*;
-use crate::projection::{IsoProjection, world_to_iso};
+use crate::objects::components::*;
+use crate::presentation::projection::{IsoProjection, world_to_iso};
 
 pub const DEPTH_SCALE: f32 = 0.01;
 
-pub fn sync_visual_transform_system(
+pub fn sync_visual_transform(
     projection: Res<IsoProjection>,
     mut query: Query<(
         &WorldPos,
@@ -39,25 +39,4 @@ pub fn sync_visual_transform_system(
 
 pub fn depth_sort(foot_projected: Vec2, layer: SortLayer, sort_bias: SortBias) -> f32 {
     layer.base_z() - foot_projected.y * DEPTH_SCALE + sort_bias.0
-}
-
-pub fn apply_selection_tint_system(
-    mut query: Query<(
-        &InteractionState,
-        &PlacementState,
-        &SelectionTint,
-        &mut Sprite,
-    )>,
-) {
-    for (interaction, placement, tint, mut sprite) in &mut query {
-        sprite.color = if *placement == PlacementState::Blocked {
-            tint.blocked
-        } else if *placement == PlacementState::Dragging {
-            tint.dragging
-        } else if interaction.selected {
-            tint.selected
-        } else {
-            tint.normal
-        };
-    }
 }

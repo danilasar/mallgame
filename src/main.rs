@@ -1,47 +1,67 @@
-mod components;
 mod input;
+mod objects;
 mod placement;
 mod presentation;
-mod projection;
+mod tools;
+mod ui;
 
 use bevy::prelude::*;
-use components::*;
 use input::*;
-use placement::*;
+use objects::components::*;
+use objects::prototypes::*;
 use presentation::*;
-use projection::*;
+use tools::*;
+use ui::*;
 
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::srgb(0.10, 0.12, 0.14)))
         .insert_resource(IsoProjection::default())
-        .insert_resource(DragState::default())
-        .insert_resource(PlacementAreas::default())
+        .init_resource::<PointerContext>()
+        .init_resource::<PointerDragState>()
+        .init_resource::<ModalState>()
+        .init_resource::<BuildPrototypes>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Continuous 2D Isometric Prototype".to_owned(),
+                title: "Continuous 2D Isometric Tools Prototype".to_owned(),
                 resolution: (1280, 720).into(),
                 resizable: true,
                 ..default()
             }),
             ..default()
         }))
+        .init_state::<ToolMode>()
+        .add_plugins((
+            ToolCorePlugin,
+            CursorToolPlugin,
+            MoveToolPlugin,
+            DeleteToolPlugin,
+            BuildToolPlugin,
+        ))
         .add_systems(Startup, setup)
+        .add_systems(
+            PreUpdate,
+            (
+                update_pointer_context,
+                update_hovered_object.after(update_pointer_context),
+            ),
+        )
         .add_systems(
             Update,
             (
-                movement_system,
-                select_and_begin_drag_system,
-                drag_system,
-                end_drag_system,
-                apply_selection_tint_system,
-                print_positions_system,
+                modal_input_system,
+                camera_drag_system.after(modal_input_system),
             )
                 .chain(),
         )
         .add_systems(
             PostUpdate,
-            sync_visual_transform_system.before(TransformSystems::Propagate),
+            (
+                update_highlight_intents,
+                sync_visual_transform.before(TransformSystems::Propagate),
+                update_highlight_visuals.after(sync_visual_transform),
+            )
+                .chain(),
         )
         .run();
 }
@@ -50,10 +70,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
 
     let floor = asset_server.load("floor.png");
-    let chair = asset_server.load("chair.png");
-    let table = asset_server.load("table.png");
-    let tree = asset_server.load("tree.png");
-
     commands.spawn((
         Sprite {
             image: floor,
@@ -69,78 +85,22 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         PlaceableAssetId("floor/background"),
     ));
 
-    spawn_placeable(
+    spawn_object_from_prototype(
         &mut commands,
-        chair,
-        "chair",
+        &asset_server,
+        BuildPrototypeId::Chair,
         Vec2::new(-180.0, -20.0),
-        Vec2::new(96.0, 128.0),
-        Vec2::new(0.0, -48.0),
-        Vec2::new(26.0, 18.0),
-        -0.2,
     );
-    spawn_placeable(
+    spawn_object_from_prototype(
         &mut commands,
-        table,
-        "table",
+        &asset_server,
+        BuildPrototypeId::Table,
         Vec2::new(80.0, -40.0),
-        Vec2::new(160.0, 128.0),
-        Vec2::new(0.0, -42.0),
-        Vec2::new(54.0, 32.0),
-        0.0,
     );
-    spawn_placeable(
+    spawn_object_from_prototype(
         &mut commands,
-        tree,
-        "tree",
+        &asset_server,
+        BuildPrototypeId::Tree,
         Vec2::new(140.0, 130.0),
-        Vec2::new(144.0, 220.0),
-        Vec2::new(0.0, -86.0),
-        Vec2::new(32.0, 28.0),
-        0.2,
     );
-}
-
-fn spawn_placeable(
-    commands: &mut Commands,
-    image: Handle<Image>,
-    asset_id: &'static str,
-    world_pos: Vec2,
-    sprite_size: Vec2,
-    foot_anchor: Vec2,
-    footprint_half_extents: Vec2,
-    sort_bias: f32,
-) {
-    commands
-        .spawn((
-            Sprite {
-                image,
-                custom_size: Some(sprite_size),
-                ..default()
-            },
-            WorldPos(world_pos),
-            Velocity::default(),
-            ProjectedPos::default(),
-            FootAnchor(foot_anchor),
-            VisualOffset(Vec2::ZERO),
-            SortLayer::Objects,
-            SortBias(sort_bias),
-            PlacementState::Placed,
-            InteractionState::default(),
-            Draggable,
-            Selectable,
-            SelectionTint {
-                normal: Color::WHITE,
-                selected: Color::srgb(1.0, 0.92, 0.55),
-                dragging: Color::srgba(0.65, 0.90, 1.0, 0.82),
-                blocked: Color::srgba(1.0, 0.35, 0.30, 0.88),
-            },
-        ))
-        .insert((
-            CollisionFootprint {
-                half_extents: footprint_half_extents,
-            },
-            BlocksPlacement,
-            PlaceableAssetId(asset_id),
-        ));
 }
