@@ -39,6 +39,7 @@ impl Plugin for ToolCorePlugin {
             .add_message::<MoveObjectCommitted>()
             .add_message::<DeleteObjectRequested>()
             .add_message::<BuildObjectRequested>()
+            .add_message::<StartMoveObjectRequested>()
             .add_message::<ToolChangedRequested>()
             .configure_sets(
                 Update,
@@ -81,10 +82,8 @@ pub struct ObjectActionRequested {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub enum ObjectAction {
     Select,
-    Open,
 }
 
 #[derive(Message, Debug, Clone, Copy)]
@@ -106,6 +105,11 @@ pub struct BuildObjectRequested {
 }
 
 #[derive(Message, Debug, Clone, Copy)]
+pub struct StartMoveObjectRequested {
+    pub entity: Entity,
+}
+
+#[derive(Message, Debug, Clone, Copy)]
 pub struct ToolChangedRequested {
     pub mode: ToolMode,
 }
@@ -119,6 +123,7 @@ pub fn apply_committed_events(
     mut builds: MessageReader<BuildObjectRequested>,
     mut selected: Query<Entity, With<Selected>>,
     mut world_pos: Query<&mut WorldPos>,
+    mut tool: ResMut<ToolContext>,
 ) {
     for action in object_actions.read() {
         info!(
@@ -148,6 +153,16 @@ pub fn apply_committed_events(
     }
 
     for delete in deletes.read() {
+        if let Some(active) = tool.active {
+            let active_entity = match active {
+                ActiveToolAction::Moving { entity, .. }
+                | ActiveToolAction::PendingDelete { entity } => Some(entity),
+                ActiveToolAction::Building { ghost, .. } => Some(ghost),
+            };
+            if active_entity == Some(delete.entity) {
+                tool.active = None;
+            }
+        }
         commands.entity(delete.entity).despawn();
         info!("DeleteObjectRequested entity={:?}", delete.entity);
     }

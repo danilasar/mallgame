@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use super::components::*;
+use super::rotation::{Rotatable, RotationVariant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuildPrototypeId {
@@ -68,16 +69,16 @@ pub fn spawn_object_from_prototype(
     world_pos: Vec2,
 ) -> Entity {
     let spec = prototype_spec(prototype);
+    let image = asset_server.load(spec.asset_path);
 
-    commands
+    let entity = commands
         .spawn((
             Sprite {
-                image: asset_server.load(spec.asset_path),
+                image: image.clone(),
                 custom_size: Some(spec.sprite_size),
                 ..default()
             },
             WorldPos(world_pos),
-            Velocity::default(),
             ProjectedPos::default(),
             FootAnchor(spec.foot_anchor),
             VisualOffset(Vec2::ZERO),
@@ -90,7 +91,13 @@ pub fn spawn_object_from_prototype(
             Deletable,
             PlaceableAssetId(spec.asset_id),
         ))
-        .id()
+        .id();
+
+    if let Some(rotatable) = rotatable_for_prototype(asset_server, prototype, image, spec) {
+        commands.entity(entity).insert(rotatable);
+    }
+
+    entity
 }
 
 pub fn spawn_ghost_from_prototype(
@@ -121,4 +128,40 @@ pub fn spawn_ghost_from_prototype(
             PlaceableAssetId(spec.asset_id),
         ))
         .id()
+}
+
+fn rotatable_for_prototype(
+    asset_server: &AssetServer,
+    prototype: BuildPrototypeId,
+    image: Handle<Image>,
+    spec: PrototypeSpec,
+) -> Option<Rotatable> {
+    if matches!(prototype, BuildPrototypeId::Tree) {
+        return None;
+    }
+
+    let normal = RotationVariant {
+        sprite: image.clone(),
+        footprint: Footprint::rectangle(spec.footprint_half_extents),
+        foot_anchor: spec.foot_anchor,
+        visual_offset: Vec2::ZERO,
+    };
+    let rotated = RotationVariant {
+        sprite: asset_server.load(match prototype {
+            BuildPrototypeId::Chair => "chair_rotated.png",
+            BuildPrototypeId::Table => "table_rotated.png",
+            BuildPrototypeId::Tree => spec.asset_path,
+        }),
+        footprint: Footprint::rectangle(Vec2::new(
+            spec.footprint_half_extents.y,
+            spec.footprint_half_extents.x,
+        )),
+        foot_anchor: spec.foot_anchor,
+        visual_offset: Vec2::ZERO,
+    };
+
+    Some(Rotatable {
+        current: 0,
+        variants: vec![normal, rotated],
+    })
 }

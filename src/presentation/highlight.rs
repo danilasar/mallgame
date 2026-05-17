@@ -11,34 +11,37 @@ pub fn update_highlight_intents(
     movable: Query<(), With<Movable>>,
     deletable: Query<(), With<Deletable>>,
     ghost: Query<(), With<BuildGhost>>,
+    selected: Query<Entity, With<Selected>>,
 ) {
     for entity in &highlighted {
         commands.entity(entity).remove::<HighlightIntent>();
     }
 
+    let mut candidates: Vec<(Entity, HighlightKind)> = Vec::new();
+
     match &tool.active {
         Some(ActiveToolAction::Moving { entity, valid, .. }) => {
-            commands.entity(*entity).insert(HighlightIntent {
-                kind: if *valid {
+            candidates.push((
+                *entity,
+                if *valid {
                     HighlightKind::MoveValid
                 } else {
                     HighlightKind::MoveInvalid
                 },
-            });
+            ));
         }
         Some(ActiveToolAction::Building { ghost, valid, .. }) => {
-            commands.entity(*ghost).insert(HighlightIntent {
-                kind: if *valid {
+            candidates.push((
+                *ghost,
+                if *valid {
                     HighlightKind::BuildValid
                 } else {
                     HighlightKind::BuildInvalid
                 },
-            });
+            ));
         }
         Some(ActiveToolAction::PendingDelete { entity }) => {
-            commands.entity(*entity).insert(HighlightIntent {
-                kind: HighlightKind::DeleteDanger,
-            });
+            candidates.push((*entity, HighlightKind::DeleteDanger));
         }
         None => {
             if let Some(entity) = tool.hovered {
@@ -53,15 +56,32 @@ pub fn update_highlight_intents(
                 };
 
                 if let Some(kind) = kind {
-                    commands.entity(entity).insert(HighlightIntent { kind });
+                    candidates.push((entity, kind));
                 }
             }
         }
     }
+
+    if let Some(entity) = tool.hovered {
+        candidates.push((entity, HighlightKind::Hover));
+    }
+    for entity in &selected {
+        candidates.push((entity, HighlightKind::Selected));
+    }
+
+    candidates.sort_by_key(|(_, kind)| std::cmp::Reverse(kind.priority()));
+    candidates.dedup_by_key(|(entity, _)| *entity);
+
+    for (entity, kind) in candidates {
+        commands.entity(entity).insert(HighlightIntent { kind });
+    }
 }
 
 pub fn update_highlight_visuals(
-    mut query: Query<(Option<&HighlightIntent>, Option<&Selected>, &mut Sprite)>,
+    mut query: Query<
+        (Option<&HighlightIntent>, Option<&Selected>, &mut Sprite),
+        Without<crate::presentation::FootprintOutlineSegment>,
+    >,
 ) {
     for (highlight, selected, mut sprite) in &mut query {
         sprite.color = match highlight.map(|intent| intent.kind) {

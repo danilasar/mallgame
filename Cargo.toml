@@ -11,5 +11,7 @@ bevy = { version = "0.18.1", default-features = false, features = [
     "std",
     "multi_threaded",
     "2d_bevy_render",
+    "ui_bevy_render",
+    "default_font",
     "png",
 ] }

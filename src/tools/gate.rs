@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext, PointerDragState};
-use crate::ui::ModalState;
+use crate::ui::ModalStack;
 
 #[derive(Resource, Debug, Clone, Default)]
 pub struct ToolInputGate {
@@ -23,11 +23,13 @@ pub fn update_tool_input_gate(
     actions: Res<InputActionState>,
     pointer: Res<PointerContext>,
     drag: Res<PointerDragState>,
-    modal: Res<ModalState>,
+    modal: Res<ModalStack>,
     mut gate: ResMut<ToolInputGate>,
 ) {
     gate.pointer_available = pointer.has_pointer;
-    gate.world_blocked = modal.active.is_some() || pointer.over_ui || !pointer.has_pointer;
+    gate.world_blocked = modal.stack.last().is_some_and(|modal| modal.blocks_world)
+        || pointer.over_ui
+        || !pointer.has_pointer;
     gate.primary_click_pressed = actions.just_pressed(InputAction::PrimaryClick)
         && !drag.consumed_click
         && !gate.world_blocked;

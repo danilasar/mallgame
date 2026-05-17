@@ -6,10 +6,6 @@ use super::prototypes::BuildPrototypeId;
 pub struct WorldPos(pub Vec2);
 
 #[derive(Component, Debug, Clone, Copy, Default)]
-#[allow(dead_code)]
-pub struct Velocity(pub Vec2);
-
-#[derive(Component, Debug, Clone, Copy, Default)]
 pub struct ProjectedPos(pub Vec2);
 
 /// Pixel offset from the sprite center to the contact point used for sorting and picking.
@@ -20,7 +16,6 @@ pub struct FootAnchor(pub Vec2);
 pub struct VisualOffset(pub Vec2);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SortLayer {
     Floor,
     Decals,
@@ -31,6 +26,15 @@ pub enum SortLayer {
 }
 
 impl SortLayer {
+    pub const ALL: [SortLayer; 6] = [
+        SortLayer::Floor,
+        SortLayer::Decals,
+        SortLayer::Objects,
+        SortLayer::Characters,
+        SortLayer::DragPreview,
+        SortLayer::SelectionOverlay,
+    ];
+
     pub fn base_z(self) -> f32 {
         match self {
             SortLayer::Floor => -1000.0,
@@ -93,7 +97,6 @@ pub struct HighlightIntent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum HighlightKind {
     Hover,
     Selected,
@@ -102,6 +105,18 @@ pub enum HighlightKind {
     DeleteDanger,
     BuildValid,
     BuildInvalid,
+}
+
+impl HighlightKind {
+    pub fn priority(self) -> u8 {
+        match self {
+            HighlightKind::DeleteDanger => 100,
+            HighlightKind::MoveInvalid | HighlightKind::BuildInvalid => 90,
+            HighlightKind::MoveValid | HighlightKind::BuildValid => 70,
+            HighlightKind::Selected => 50,
+            HighlightKind::Hover => 10,
+        }
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy)]

@@ -5,7 +5,7 @@ use crate::objects::components::Deletable;
 use crate::tools::{
     ActiveToolAction, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry, ToolSet,
 };
-use crate::ui::{Modal, ModalState};
+use crate::ui::{ModalKind, ModalRequest};
 
 pub struct DeleteToolPlugin;
 
@@ -34,7 +34,7 @@ pub fn delete_tool_system(
     gate: Res<ToolInputGate>,
     deletable: Query<(), With<Deletable>>,
     mut tool: ResMut<ToolContext>,
-    mut modal_state: ResMut<ModalState>,
+    mut modal_requests: MessageWriter<ModalRequest>,
 ) {
     tool.sync_from_pointer(&pointer);
 
@@ -45,13 +45,13 @@ pub fn delete_tool_system(
     if gate.primary_click_released {
         if let Some(entity) = tool.hovered.filter(|entity| deletable.get(*entity).is_ok()) {
             tool.active = Some(ActiveToolAction::PendingDelete { entity });
-            open_confirm_delete_modal(&mut modal_state, entity);
+            open_confirm_delete_modal(&mut modal_requests, entity);
         }
     }
 }
 
-pub fn open_confirm_delete_modal(modal_state: &mut ModalState, entity: Entity) {
-    modal_state.active = Some(Modal::ConfirmDelete { entity });
+pub fn open_confirm_delete_modal(requests: &mut MessageWriter<ModalRequest>, entity: Entity) {
+    requests.write(ModalRequest::Open(ModalKind::ConfirmDelete { entity }));
     info!(
         "Confirm delete modal opened for entity={:?}. Enter=confirm, Escape/right click=cancel",
         entity

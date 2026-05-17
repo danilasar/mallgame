@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use input::*;
 use objects::components::*;
 use objects::prototypes::*;
+use objects::rotation::*;
 use presentation::*;
 use tools::*;
 use ui::*;
@@ -19,7 +20,6 @@ fn main() {
         .insert_resource(IsoProjection::default())
         .init_resource::<PointerContext>()
         .init_resource::<PointerDragState>()
-        .init_resource::<ModalState>()
         .init_resource::<BuildPrototypes>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -33,25 +33,42 @@ fn main() {
         .add_plugins(InputActionsPlugin)
         .init_state::<ToolMode>()
         .add_plugins((
+            UiCorePlugin,
+            RightDockUiPlugin,
+            CameraControlsUiPlugin,
+            ModalUiPlugin,
+            WorldWidgetUiPlugin,
             ToolCorePlugin,
             CursorToolPlugin,
             MoveToolPlugin,
             DeleteToolPlugin,
             BuildToolPlugin,
+            ObjectRotationPlugin,
+            FootprintOverlayPlugin,
         ))
-        .add_systems(Startup, setup)
-        .add_systems(
-            PreUpdate,
+        .configure_sets(
+            Update,
             (
-                update_pointer_context,
-                update_hovered_object.after(update_pointer_context),
-            ),
+                UiSet::UpdateInteraction,
+                UiSet::Requests,
+                UiSet::Modal,
+                UiSet::WorldWidgets,
+                ToolSet::InputGate,
+                ToolSet::ToolUpdate,
+                ToolSet::Validation,
+                ToolSet::Commit,
+            )
+                .chain(),
         )
+        .add_systems(Startup, setup)
+        .add_systems(PreUpdate, update_pointer_context)
         .add_systems(
             Update,
             (
-                modal_input_system,
-                camera_drag_system.after(modal_input_system),
+                update_hovered_object.after(update_pointer_over_ui),
+                camera_drag_system
+                    .after(update_hovered_object)
+                    .after(update_pointer_over_ui),
             )
                 .chain(),
         )
@@ -69,6 +86,7 @@ fn main() {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
+    let _sort_layers = SortLayer::ALL;
 
     let floor = asset_server.load("floor.png");
     commands.spawn((

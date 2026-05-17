@@ -11,6 +11,9 @@ pub enum InputAction {
     SecondaryClick,
     Cancel,
     Confirm,
+    CameraZoomIn,
+    CameraZoomOut,
+    ToggleFullscreen,
     PrintDebugPositions,
 }
 
@@ -45,6 +48,15 @@ impl Default for InputBindings {
             Confirm,
             vec![Key(KeyCode::Enter), Key(KeyCode::NumpadEnter)],
         );
+        map.insert(
+            CameraZoomIn,
+            vec![Key(KeyCode::Equal), Key(KeyCode::NumpadAdd)],
+        );
+        map.insert(
+            CameraZoomOut,
+            vec![Key(KeyCode::Minus), Key(KeyCode::NumpadSubtract)],
+        );
+        map.insert(ToggleFullscreen, vec![Key(KeyCode::F11)]);
         map.insert(PrintDebugPositions, vec![Key(KeyCode::KeyP)]);
 
         Self { map }
