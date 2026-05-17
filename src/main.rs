@@ -30,6 +30,7 @@ fn main() {
             }),
             ..default()
         }))
+        .add_plugins(InputActionsPlugin)
         .init_state::<ToolMode>()
         .add_plugins((
             ToolCorePlugin,

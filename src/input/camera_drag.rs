@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{InputAction, InputActionState, PointerContext};
 use crate::ui::ModalState;
 
 #[derive(Resource, Debug, Clone)]
@@ -25,7 +25,7 @@ impl Default for PointerDragState {
 }
 
 pub fn camera_drag_system(
-    buttons: Res<ButtonInput<MouseButton>>,
+    actions: Res<InputActionState>,
     pointer: Res<PointerContext>,
     modal: Res<ModalState>,
     mut drag: ResMut<PointerDragState>,
@@ -37,13 +37,13 @@ pub fn camera_drag_system(
         return;
     }
 
-    if buttons.just_pressed(MouseButton::Left) {
+    if actions.just_pressed(InputAction::PrimaryClick) {
         drag.pressed_at_screen = Some(pointer.screen_pos);
         drag.previous_screen_pos = Some(pointer.screen_pos);
         drag.is_camera_dragging = false;
     }
 
-    if buttons.pressed(MouseButton::Left) {
+    if actions.pressed(InputAction::PrimaryClick) {
         if let (Some(start), Some(previous)) = (drag.pressed_at_screen, drag.previous_screen_pos) {
             if pointer.screen_pos.distance(start) > drag.drag_threshold_px {
                 drag.is_camera_dragging = true;
@@ -60,7 +60,7 @@ pub fn camera_drag_system(
         drag.previous_screen_pos = Some(pointer.screen_pos);
     }
 
-    if buttons.just_released(MouseButton::Left) {
+    if actions.just_released(InputAction::PrimaryClick) {
         drag.consumed_click = drag.is_camera_dragging;
         drag.pressed_at_screen = None;
         drag.previous_screen_pos = None;

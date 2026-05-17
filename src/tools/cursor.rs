@@ -1,15 +1,25 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{InputAction, PointerContext};
 use crate::objects::components::Interactive;
 use crate::tools::{
-    ObjectAction, ObjectActionRequested, ToolContext, ToolInputGate, ToolMode, ToolSet,
+    ObjectAction, ObjectActionRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
+    ToolRegistry, ToolSet,
 };
 
 pub struct CursorToolPlugin;
 
 impl Plugin for CursorToolPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ToolRegistry>();
+        app.world_mut()
+            .resource_mut::<ToolRegistry>()
+            .register(ToolDescriptor {
+                mode: ToolMode::Cursor,
+                action: InputAction::ToolCursor,
+                label: "Cursor",
+            });
+
         app.add_systems(
             Update,
             cursor_tool_system

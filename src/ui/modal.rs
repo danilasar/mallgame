@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::input::{InputAction, InputActionState};
 use crate::tools::{DeleteObjectRequested, ToolContext};
 
 #[derive(Resource, Debug, Default)]
@@ -13,8 +14,7 @@ pub enum Modal {
 }
 
 pub fn modal_input_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    actions: Res<InputActionState>,
     mut modal: ResMut<ModalState>,
     mut tool: ResMut<ToolContext>,
     mut deletes: MessageWriter<DeleteObjectRequested>,
@@ -23,9 +23,9 @@ pub fn modal_input_system(
         return;
     };
 
-    if keys.just_pressed(KeyCode::Enter) {
+    if actions.just_pressed(InputAction::Confirm) {
         confirm_delete(active, &mut modal, &mut tool, &mut deletes);
-    } else if keys.just_pressed(KeyCode::Escape) || buttons.just_pressed(MouseButton::Right) {
+    } else if actions.just_pressed(InputAction::Cancel) {
         cancel_modal(&mut modal, &mut tool);
     }
 }

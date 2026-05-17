@@ -1,15 +1,25 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{InputAction, PointerContext};
 use crate::objects::components::{Movable, Selected, WorldPos};
 use crate::tools::{
-    ActiveToolAction, MoveObjectCommitted, ToolContext, ToolInputGate, ToolMode, ToolSet,
+    ActiveToolAction, MoveObjectCommitted, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
+    ToolRegistry, ToolSet,
 };
 
 pub struct MoveToolPlugin;
 
 impl Plugin for MoveToolPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ToolRegistry>();
+        app.world_mut()
+            .resource_mut::<ToolRegistry>()
+            .register(ToolDescriptor {
+                mode: ToolMode::Move,
+                action: InputAction::ToolMove,
+                label: "Move",
+            });
+
         app.add_systems(
             Update,
             move_tool_system

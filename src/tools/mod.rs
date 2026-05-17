@@ -16,6 +16,7 @@ pub use move_tool::*;
 
 use bevy::prelude::*;
 
+use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
 use crate::objects::prototypes::{BuildPrototypeId, spawn_object_from_prototype};
 
@@ -33,6 +34,7 @@ impl Plugin for ToolCorePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ToolContext>()
             .init_resource::<ToolInputGate>()
+            .init_resource::<ToolRegistry>()
             .add_message::<ObjectActionRequested>()
             .add_message::<MoveObjectCommitted>()
             .add_message::<DeleteObjectRequested>()
@@ -160,10 +162,10 @@ pub fn apply_committed_events(
 }
 
 pub fn print_positions_system(
-    keys: Res<ButtonInput<KeyCode>>,
+    actions: Res<InputActionState>,
     query: Query<(&PlaceableAssetId, &WorldPos, &SortLayer, &FootAnchor), Without<BuildGhost>>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyP) {
+    if !actions.just_pressed(InputAction::PrintDebugPositions) {
         return;
     }
 

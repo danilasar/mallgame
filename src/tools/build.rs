@@ -1,16 +1,26 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{InputAction, PointerContext};
 use crate::objects::components::{BuildGhost, GhostOf, WorldPos};
 use crate::objects::prototypes::{BuildPrototypes, spawn_ghost_from_prototype};
 use crate::tools::{
-    ActiveToolAction, BuildObjectRequested, ToolContext, ToolInputGate, ToolMode, ToolSet,
+    ActiveToolAction, BuildObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
+    ToolRegistry, ToolSet,
 };
 
 pub struct BuildToolPlugin;
 
 impl Plugin for BuildToolPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ToolRegistry>();
+        app.world_mut()
+            .resource_mut::<ToolRegistry>()
+            .register(ToolDescriptor {
+                mode: ToolMode::Build,
+                action: InputAction::ToolBuild,
+                label: "Build",
+            });
+
         app.add_systems(OnEnter(ToolMode::Build), spawn_build_ghost)
             .add_systems(OnExit(ToolMode::Build), despawn_build_ghost)
             .add_systems(

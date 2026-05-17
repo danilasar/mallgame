@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::input::{InputAction, InputActionState};
 use crate::tools::ToolChangedRequested;
 
 #[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -11,26 +12,38 @@ pub enum ToolMode {
     Build,
 }
 
+#[derive(Debug, Clone)]
+pub struct ToolDescriptor {
+    pub mode: ToolMode,
+    pub action: InputAction,
+    pub label: &'static str,
+}
+
+#[derive(Resource, Debug, Default)]
+pub struct ToolRegistry {
+    pub tools: Vec<ToolDescriptor>,
+}
+
+impl ToolRegistry {
+    pub fn register(&mut self, descriptor: ToolDescriptor) {
+        self.tools.retain(|tool| tool.mode != descriptor.mode);
+        self.tools.push(descriptor);
+    }
+}
+
 pub fn tool_hotkeys_system(
-    keys: Res<ButtonInput<KeyCode>>,
+    actions: Res<InputActionState>,
+    registry: Res<ToolRegistry>,
     mut next: ResMut<NextState<ToolMode>>,
     mut changed: MessageWriter<ToolChangedRequested>,
 ) {
-    let requested = if keys.just_pressed(KeyCode::Digit1) {
-        Some(ToolMode::Cursor)
-    } else if keys.just_pressed(KeyCode::Digit2) {
-        Some(ToolMode::Move)
-    } else if keys.just_pressed(KeyCode::Digit3) {
-        Some(ToolMode::Delete)
-    } else if keys.just_pressed(KeyCode::Digit4) {
-        Some(ToolMode::Build)
-    } else {
-        None
-    };
-
-    if let Some(mode) = requested {
-        changed.write(ToolChangedRequested { mode });
-        next.set(mode);
+    for tool in &registry.tools {
+        if actions.just_pressed(tool.action) {
+            info!("Tool hotkey requested: {}", tool.label);
+            changed.write(ToolChangedRequested { mode: tool.mode });
+            next.set(tool.mode);
+            break;
+        }
     }
 }
 
