@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashSet;
 
+use crate::objects::components::SortLayer;
 use crate::presentation::{IsoProjection, world_to_iso};
 use crate::store::{
     StoreArea, StoreChunkCoord, StoreChunkKind, WorldBounds, side_neighbors,
@@ -9,7 +10,6 @@ use crate::store::{
 use crate::tools::{ExpansionToolState, ToolMode};
 
 #[derive(Component, Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct StoreChunkOverlay {
     pub coord: StoreChunkCoord,
     pub kind: StoreChunkOverlayKind,
@@ -53,15 +53,16 @@ fn update_store_chunk_overlays(
         return;
     };
 
+    // Отрисовка купленной территории как "Белой сетки"
     for coord in store.owned_chunks.keys().copied() {
         spawn_chunk_outline(
             &mut commands,
             &store,
             coord,
             StoreChunkOverlayKind::Owned,
-            Color::srgba(0.20, 0.62, 0.55, 0.45),
-            3.0,
-            920.0,
+            Color::srgba(1.0, 1.0, 1.0, 0.25), // Прозрачный белый
+            2.0,
+            SortLayer::StoreOverlay.base_z(),
             *projection,
         );
     }
@@ -76,15 +77,15 @@ fn update_store_chunk_overlays(
                 (
                     StoreChunkOverlayKind::HoveredAvailable,
                     Color::srgba(1.0, 0.86, 0.20, 0.88),
-                    7.0,
-                    945.0,
+                    6.0,
+                    SortLayer::StoreOverlay.base_z() + 20.0,
                 )
             } else {
                 (
                     StoreChunkOverlayKind::Available,
-                    Color::srgba(0.38, 0.78, 0.42, 0.58),
-                    5.0,
-                    935.0,
+                    Color::srgba(1.0, 1.0, 1.0, 0.15), // Тонкий белый для доступных
+                    4.0,
+                    SortLayer::StoreOverlay.base_z() + 10.0,
                 )
             };
         spawn_chunk_outline(

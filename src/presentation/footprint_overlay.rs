@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::objects::components::{Footprint, Movable, WorldPos};
+use crate::objects::components::{Footprint, Movable, SortLayer, WorldPos};
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
 use crate::presentation::world_to_iso;
@@ -79,6 +79,12 @@ pub fn update_footprint_outline_overlay(
     }
 
     let mut segment_count = 0usize;
+    // We cannot easily collect Query results into a Vec for reuse due to mutable borrowing.
+    // We'll use iter_mut() and nth() sparingly or just iterate once.
+    
+    // Convert to a reusable list of entities we already have
+    let existing_segments: Vec<_> = overlays.iter().map(|(e, _, _, _, _)| e).collect();
+
     for (a, b) in points
         .iter()
         .copied()
@@ -94,19 +100,20 @@ pub fn update_footprint_outline_overlay(
             continue;
         }
 
-        if let Some((_, mut overlay, mut sprite, mut transform, mut visibility)) =
-            overlays.iter_mut().nth(segment_count)
-        {
-            overlay.target = target;
-            *sprite = Sprite::from_color(Color::srgb(1.0, 0.86, 0.18), Vec2::new(length, 6.0));
-            transform.translation = Vec3::new(mid.x, mid.y, 950.0);
-            transform.rotation = Quat::from_rotation_z(delta.y.atan2(delta.x));
-            *visibility = Visibility::Visible;
+        if segment_count < existing_segments.len() {
+            let entity = existing_segments[segment_count];
+            if let Ok((_, mut overlay, mut sprite, mut transform, mut visibility)) = overlays.get_mut(entity) {
+                overlay.target = target;
+                *sprite = Sprite::from_color(Color::srgb(1.0, 0.86, 0.18), Vec2::new(length, 6.0));
+                transform.translation = Vec3::new(mid.x, mid.y, SortLayer::SelectionOverlay.base_z());
+                transform.rotation = Quat::from_rotation_z(delta.y.atan2(delta.x));
+                *visibility = Visibility::Visible;
+            }
         } else {
             commands.spawn((
                 Sprite::from_color(Color::srgb(1.0, 0.86, 0.18), Vec2::new(length, 6.0)),
                 Transform {
-                    translation: Vec3::new(mid.x, mid.y, 950.0),
+                    translation: Vec3::new(mid.x, mid.y, SortLayer::SelectionOverlay.base_z()),
                     rotation: Quat::from_rotation_z(delta.y.atan2(delta.x)),
                     ..default()
                 },
@@ -119,7 +126,10 @@ pub fn update_footprint_outline_overlay(
         segment_count += 1;
     }
 
-    for (_, _, _, _, mut visibility) in overlays.iter_mut().skip(segment_count) {
-        *visibility = Visibility::Hidden;
+    // Hide remaining unused segments
+    for i in segment_count..existing_segments.len() {
+        if let Ok((_, _, _, _, mut visibility)) = overlays.get_mut(existing_segments[i]) {
+            *visibility = Visibility::Hidden;
+        }
     }
 }

@@ -18,6 +18,7 @@ pub struct VisualOffset(pub Vec2);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortLayer {
     Floor,
+    StoreOverlay,
     Decals,
     Objects,
     Characters,
@@ -26,8 +27,9 @@ pub enum SortLayer {
 }
 
 impl SortLayer {
-    pub const ALL: [SortLayer; 6] = [
+    pub const ALL: [SortLayer; 7] = [
         SortLayer::Floor,
+        SortLayer::StoreOverlay,
         SortLayer::Decals,
         SortLayer::Objects,
         SortLayer::Characters,
@@ -37,12 +39,13 @@ impl SortLayer {
 
     pub fn base_z(self) -> f32 {
         match self {
-            SortLayer::Floor => -1000.0,
-            SortLayer::Decals => -500.0,
-            SortLayer::Objects => 0.0,
-            SortLayer::Characters => 1000.0,
-            SortLayer::DragPreview => 2000.0,
-            SortLayer::SelectionOverlay => 3000.0,
+            SortLayer::Floor => 100.0,
+            SortLayer::StoreOverlay => 200.0,
+            SortLayer::Decals => 300.0,
+            SortLayer::Objects => 500.0,
+            SortLayer::Characters => 600.0,
+            SortLayer::DragPreview => 800.0,
+            SortLayer::SelectionOverlay => 900.0,
         }
     }
 }

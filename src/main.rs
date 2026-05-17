@@ -96,22 +96,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     let _sort_layers = SortLayer::ALL;
 
-    let floor = asset_server.load("floor.png");
-    commands.spawn((
-        Sprite {
-            image: floor,
-            custom_size: Some(Vec2::new(1600.0, 920.0)),
-            ..default()
-        },
-        WorldPos(Vec2::ZERO),
-        ProjectedPos(Vec2::ZERO),
-        FootAnchor(Vec2::ZERO),
-        VisualOffset(Vec2::ZERO),
-        SortLayer::Floor,
-        SortBias(0.0),
-        PlaceableAssetId("floor/background"),
-    ));
-
     spawn_object_from_prototype(
         &mut commands,
         &asset_server,
