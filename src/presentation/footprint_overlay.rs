@@ -4,7 +4,7 @@ use crate::objects::components::{Footprint, Movable, SortLayer, WorldPos};
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
 use crate::presentation::world_to_iso;
-use crate::tools::{ActiveToolAction, ToolContext, ToolMode};
+use crate::tools::ToolMode;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct FootprintOutlineOverlay {
@@ -28,7 +28,8 @@ impl Plugin for FootprintOverlayPlugin {
 pub fn update_footprint_outline_overlay(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
-    tool: Res<ToolContext>,
+    session: Res<crate::tools::ToolSessionState>,
+    tool: Res<crate::tools::ToolContext>,
     projection: Res<IsoProjection>,
     objects: Query<(&WorldPos, &Footprint, Option<&Movable>)>,
     mut overlays: Query<
@@ -42,17 +43,17 @@ pub fn update_footprint_outline_overlay(
         With<FootprintOutlineSegment>,
     >,
 ) {
-    if *mode.get() != ToolMode::Move {
-        for (_, _, _, _, mut visibility) in &mut overlays {
-            *visibility = Visibility::Hidden;
-        }
-        return;
-    }
+    // 1. If there's an active session with a preview, it always gets the focus outline
+    let preview_target = session.active.as_ref().and_then(|s| s.preview_entity());
 
-    let target = match tool.active {
-        Some(ActiveToolAction::Moving { entity, .. }) => Some(entity),
-        _ => tool.hovered,
+    // 2. If no active session, show outline on hover ONLY in Move mode (to indicate pickability)
+    let hover_target = if preview_target.is_none() && *mode.get() == ToolMode::Move {
+        tool.hovered
+    } else {
+        None
     };
+
+    let target = preview_target.or(hover_target);
 
     let Some(target) = target else {
         for (_, _, _, _, mut visibility) in &mut overlays {
@@ -60,18 +61,12 @@ pub fn update_footprint_outline_overlay(
         }
         return;
     };
-    let Ok((world_pos, footprint, movable)) = objects.get(target) else {
+    let Ok((world_pos, footprint, _movable)) = objects.get(target) else {
         for (_, _, _, _, mut visibility) in &mut overlays {
             *visibility = Visibility::Hidden;
         }
         return;
     };
-    if movable.is_none() {
-        for (_, _, _, _, mut visibility) in &mut overlays {
-            *visibility = Visibility::Hidden;
-        }
-        return;
-    }
 
     let points = world_polygon(footprint, world_pos.0);
     if points.len() < 2 {

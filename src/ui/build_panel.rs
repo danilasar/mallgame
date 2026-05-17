@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::objects::prototypes::BuildPrototypeId;
-use crate::tools::{SelectBuildObjectRequested, ToolChangedRequested, ToolMode};
+use crate::tools::{ActivateToolRequested, ToolActivationKind, ToolMode};
 use crate::ui::{
     BlocksWorldInput, UiRoot, UiSet,
     buttons::{UiFonts, label_text, ui_button, ui_text},
@@ -91,8 +91,7 @@ fn setup_bottom_build_panel(mut commands: Commands, root: Query<Entity, With<UiR
 fn build_panel_mode_buttons(
     mut mode: ResMut<BuildPanelMode>,
     mut query: Query<(&Interaction, &BuildPanelModeButton), Changed<Interaction>>,
-    mut next_tool: ResMut<NextState<ToolMode>>,
-    mut changed: MessageWriter<ToolChangedRequested>,
+    mut activation: MessageWriter<ActivateToolRequested>,
 ) {
     for (interaction, button) in &mut query {
         if *interaction != Interaction::Pressed {
@@ -101,15 +100,15 @@ fn build_panel_mode_buttons(
         *mode = button.mode;
         match button.mode {
             BuildPanelMode::Objects => {
-                next_tool.set(ToolMode::Cursor);
-                changed.write(ToolChangedRequested {
+                activation.write(ActivateToolRequested {
                     mode: ToolMode::Cursor,
+                    kind: ToolActivationKind::Replace,
                 });
             }
             BuildPanelMode::Expansion => {
-                next_tool.set(ToolMode::Expansion);
-                changed.write(ToolChangedRequested {
+                activation.write(ActivateToolRequested {
                     mode: ToolMode::Expansion,
+                    kind: ToolActivationKind::Temporary,
                 });
             }
             BuildPanelMode::Closed => {}
@@ -120,29 +119,32 @@ fn build_panel_mode_buttons(
 fn build_panel_close_button(
     mut mode: ResMut<BuildPanelMode>,
     mut query: Query<&Interaction, (With<BuildPanelCloseButton>, Changed<Interaction>)>,
-    mut next_tool: ResMut<NextState<ToolMode>>,
-    mut changed: MessageWriter<ToolChangedRequested>,
+    mut activation: MessageWriter<ActivateToolRequested>,
 ) {
     for interaction in &mut query {
         if *interaction != Interaction::Pressed {
             continue;
         }
         *mode = BuildPanelMode::Closed;
-        next_tool.set(ToolMode::Cursor);
-        changed.write(ToolChangedRequested {
+        // Invariant 15: Return to Cursor to cancel sessions launched from here
+        activation.write(ActivateToolRequested {
             mode: ToolMode::Cursor,
+            kind: ToolActivationKind::Replace,
         });
     }
 }
 
 fn build_object_install_buttons(
     mut query: Query<(&Interaction, &BuildObjectInstallButton), Changed<Interaction>>,
-    mut requests: MessageWriter<SelectBuildObjectRequested>,
+    mut activation: MessageWriter<ActivateToolRequested>,
+    mut prototypes: ResMut<crate::objects::prototypes::BuildPrototypes>,
 ) {
     for (interaction, button) in &mut query {
         if *interaction == Interaction::Pressed {
-            requests.write(SelectBuildObjectRequested {
-                prototype: button.prototype,
+            prototypes.active = button.prototype;
+            activation.write(ActivateToolRequested {
+                mode: ToolMode::Build,
+                kind: ToolActivationKind::Replace,
             });
         }
     }

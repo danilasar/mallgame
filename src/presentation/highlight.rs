@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::objects::components::*;
-use crate::tools::{ActiveToolAction, ToolContext, ToolMode};
+use crate::tools::{ActiveToolAction, ToolContext, ToolMode, PlacementPreview, PreviewSource};
 
 pub fn update_highlight_intents(
     mut commands: Commands,
@@ -79,12 +79,18 @@ pub fn update_highlight_intents(
 
 pub fn update_highlight_visuals(
     mut query: Query<
-        (Option<&HighlightIntent>, Option<&Selected>, &mut Sprite),
+        (
+            Option<&HighlightIntent>,
+            Option<&Selected>,
+            Option<&PlacementPreview>,
+            Option<&PreviewSource>,
+            &mut Sprite,
+        ),
         Without<crate::presentation::FootprintOutlineSegment>,
     >,
 ) {
-    for (highlight, selected, mut sprite) in &mut query {
-        sprite.color = match highlight.map(|intent| intent.kind) {
+    for (highlight, selected, placement_preview, preview_source, mut sprite) in &mut query {
+        let base_color = match highlight.map(|intent| intent.kind) {
             Some(HighlightKind::MoveInvalid | HighlightKind::BuildInvalid) => {
                 Color::srgba(1.0, 0.32, 0.28, 0.82)
             }
@@ -97,5 +103,20 @@ pub fn update_highlight_visuals(
             None if selected.is_some() => Color::srgb(0.62, 0.82, 1.0),
             None => Color::WHITE,
         };
+
+        let final_color = if let Some(preview) = placement_preview {
+            match &preview.validation {
+                Some(Ok(())) => Color::srgba(0.45, 1.0, 0.55, 0.72),
+                Some(Err(_)) => Color::srgba(1.0, 0.32, 0.28, 0.82),
+                None => base_color.with_alpha(0.5),
+            }
+        } else if preview_source.is_some() {
+            // Dim source object during Move
+            base_color.with_alpha(0.3)
+        } else {
+            base_color
+        };
+
+        sprite.color = final_color;
     }
 }

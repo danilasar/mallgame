@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, PointerContext};
-use crate::objects::components::{BuildGhost, GhostOf, WorldPos};
+use crate::objects::components::WorldPos;
 use crate::objects::prototypes::{BuildPrototypeId, BuildPrototypes, spawn_ghost_from_prototype};
 use crate::tools::{
-    ActiveToolAction, BuildObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
-    ToolRegistry, ToolSet,
+    ActivateToolRequested, ActiveToolSession, BuildObjectRequested, BuildToolSession,
+    ToolActivationKind, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry,
+    ToolSessionState, ToolSet, ToolPreview, ToolPreviewKind, NonInteractive, PlacementPreview,
 };
 
 pub struct BuildToolPlugin;
@@ -22,8 +23,8 @@ impl Plugin for BuildToolPlugin {
             });
 
         app.add_message::<SelectBuildObjectRequested>()
-            .add_systems(OnEnter(ToolMode::Build), spawn_build_ghost)
-            .add_systems(OnExit(ToolMode::Build), despawn_build_ghost)
+            .add_systems(OnEnter(ToolMode::Build), start_build_session)
+            .add_systems(OnExit(ToolMode::Build), cleanup_build_session)
             .add_systems(
                 Update,
                 (
@@ -42,69 +43,69 @@ pub struct SelectBuildObjectRequested {
 }
 
 fn apply_select_build_object_requests(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    pointer: Res<PointerContext>,
-    mode: Res<State<ToolMode>>,
     mut requests: MessageReader<SelectBuildObjectRequested>,
     mut prototypes: ResMut<BuildPrototypes>,
-    mut tool: ResMut<ToolContext>,
-    ghosts: Query<Entity, With<BuildGhost>>,
-    mut next_mode: ResMut<NextState<ToolMode>>,
+    mut activation: MessageWriter<ActivateToolRequested>,
 ) {
     for request in requests.read() {
         prototypes.active = request.prototype;
-        next_mode.set(ToolMode::Build);
-
-        if *mode.get() != ToolMode::Build {
-            continue;
-        }
-
-        for ghost in &ghosts {
-            commands.entity(ghost).despawn();
-        }
-        let ghost = spawn_ghost_from_prototype(
-            &mut commands,
-            &asset_server,
-            request.prototype,
-            pointer.world_pos,
-        );
-        tool.active = Some(ActiveToolAction::Building {
-            prototype: request.prototype,
-            ghost,
-            current_world_pos: pointer.world_pos,
-            valid: false,
+        activation.write(ActivateToolRequested {
+            mode: ToolMode::Build,
+            kind: ToolActivationKind::Replace,
         });
     }
 }
 
-pub fn spawn_build_ghost(
+fn start_build_session(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     prototypes: Res<BuildPrototypes>,
     pointer: Res<PointerContext>,
-    mut tool: ResMut<ToolContext>,
+    mut session: ResMut<ToolSessionState>,
 ) {
-    let ghost = spawn_ghost_from_prototype(
+    let preview_entity = spawn_ghost_from_prototype(
         &mut commands,
         &asset_server,
         prototypes.active,
         pointer.world_pos,
     );
-    tool.active = Some(ActiveToolAction::Building {
-        prototype: prototypes.active,
-        ghost,
-        current_world_pos: pointer.world_pos,
-        valid: false,
-    });
+    
+    // Convert old ghost to new preview system
+    commands.entity(preview_entity).insert((
+        ToolPreview,
+        ToolPreviewKind::Build {
+            prototype_id: prototypes.active,
+        },
+        PlacementPreview { validation: None },
+        NonInteractive,
+    ));
+
+    session.active = Some(ActiveToolSession::Build(BuildToolSession {
+        prototype_id: prototypes.active,
+        preview_entity,
+        rotation_index: 0,
+    }));
+}
+
+fn cleanup_build_session(
+    mut commands: Commands,
+    mut session: ResMut<ToolSessionState>,
+) {
+    crate::tools::cleanup_current_session(
+        &mut commands,
+        &mut session,
+        crate::tools::ToolSessionEndReason::Replaced,
+    );
 }
 
 pub fn build_tool_system(
+    mut commands: Commands,
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
     mut next_mode: ResMut<NextState<ToolMode>>,
     mut tool: ResMut<ToolContext>,
-    mut ghost_positions: Query<&mut WorldPos, With<BuildGhost>>,
+    mut session: ResMut<ToolSessionState>,
+    mut ghost_positions: Query<&mut WorldPos>,
     mut builds: MessageWriter<BuildObjectRequested>,
 ) {
     tool.sync_from_pointer(&pointer);
@@ -114,49 +115,27 @@ pub fn build_tool_system(
     }
 
     if gate.cancel_requested {
-        tool.active = None;
+        crate::tools::cleanup_current_session(
+            &mut commands,
+            &mut session,
+            crate::tools::ToolSessionEndReason::Cancelled,
+        );
         next_mode.set(ToolMode::Cursor);
         return;
     }
 
-    let pointer_world = tool.pointer_world;
-    if let Some(ActiveToolAction::Building {
-        prototype,
-        ghost,
-        current_world_pos,
-        valid,
-    }) = tool.active.as_mut()
-    {
-        *current_world_pos = pointer_world;
-        if let Ok(mut world_pos) = ghost_positions.get_mut(*ghost) {
-            world_pos.0 = *current_world_pos;
+    if let Some(ActiveToolSession::Build(build_session)) = session.active.as_ref() {
+        if let Ok(mut world_pos) = ghost_positions.get_mut(build_session.preview_entity) {
+            world_pos.0 = pointer.world_pos;
         }
 
-        if gate.primary_click_released && *valid {
+        if gate.primary_click_released {
+            // Re-check validity before committing
             builds.write(BuildObjectRequested {
-                prototype: *prototype,
-                pos: *current_world_pos,
+                prototype: build_session.prototype_id,
+                pos: pointer.world_pos,
+                rotation: build_session.rotation_index,
             });
         }
-    }
-}
-
-pub fn despawn_build_ghost(
-    mut commands: Commands,
-    mut tool: ResMut<ToolContext>,
-    ghosts: Query<(Entity, Option<&GhostOf>), With<BuildGhost>>,
-) {
-    for (entity, ghost_of) in &ghosts {
-        if let Some(ghost_of) = ghost_of {
-            info!(
-                "Despawning build ghost for prototype={:?}",
-                ghost_of.prototype
-            );
-        }
-        commands.entity(entity).despawn();
-    }
-
-    if matches!(tool.active, Some(ActiveToolAction::Building { .. })) {
-        tool.active = None;
     }
 }

@@ -2,23 +2,20 @@ use bevy::prelude::*;
 
 use crate::input::PointerContext;
 use crate::store::{
-    StoreArea, StoreChunkCoord, StoreChunkKind, WorldBounds, validate_chunk_purchase,
+    StoreArea, StoreChunkKind, WorldBounds, validate_chunk_purchase,
 };
-use crate::tools::{ToolContext, ToolInputGate, ToolMode, ToolSet};
+use crate::tools::{
+    ToolContext, ToolInputGate, ToolMode, ToolSet, ToolSessionState, ActiveToolSession,
+    ExpansionToolSession, ReturnToPreviousToolRequested,
+};
 use crate::ui::{ModalKind, ModalRequest};
-
-#[derive(Resource, Debug, Default)]
-pub struct ExpansionToolState {
-    pub hovered_chunk: Option<StoreChunkCoord>,
-    pub hovered_valid: bool,
-}
 
 pub struct ExpansionToolPlugin;
 
 impl Plugin for ExpansionToolPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ExpansionToolState>()
-            .add_systems(OnExit(ToolMode::Expansion), clear_expansion_tool_state)
+        app.add_systems(OnEnter(ToolMode::Expansion), start_expansion_session)
+            .add_systems(OnExit(ToolMode::Expansion), cleanup_expansion_session)
             .add_systems(
                 Update,
                 expansion_tool_system
@@ -28,48 +25,65 @@ impl Plugin for ExpansionToolPlugin {
     }
 }
 
+fn start_expansion_session(
+    mut session: ResMut<ToolSessionState>,
+) {
+    session.active = Some(ActiveToolSession::Expansion(ExpansionToolSession {
+        hovered_coord: None,
+        hovered_validation: None,
+        pending_modal_coord: None,
+    }));
+}
+
+fn cleanup_expansion_session(
+    mut session: ResMut<ToolSessionState>,
+) {
+    if matches!(session.active, Some(ActiveToolSession::Expansion(_))) {
+        session.active = None;
+    }
+}
+
 fn expansion_tool_system(
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
     world: Res<WorldBounds>,
     store: Res<StoreArea>,
-    mut next_mode: ResMut<NextState<ToolMode>>,
     mut tool: ResMut<ToolContext>,
-    mut state: ResMut<ExpansionToolState>,
+    mut session: ResMut<ToolSessionState>,
     mut modal_requests: MessageWriter<ModalRequest>,
+    mut return_request: MessageWriter<ReturnToPreviousToolRequested>,
 ) {
     tool.sync_from_pointer(&pointer);
     if !gate.can_use_world() {
         return;
     }
+
     if gate.cancel_requested {
-        state.hovered_chunk = None;
-        state.hovered_valid = false;
-        next_mode.set(ToolMode::Cursor);
+        return_request.write(ReturnToPreviousToolRequested);
         return;
     }
 
-    let coord = store.world_to_chunk_coord(pointer.world_pos);
-    let validation = validate_chunk_purchase(&world, &store, coord, StoreChunkKind::Default);
-    let valid = validation.valid;
-    if state.hovered_chunk != Some(coord) {
-        info!(
-            "Hovered expansion chunk {:?}, valid={}, reason={:?}",
-            coord, valid, validation.reason
-        );
-    }
-    state.hovered_chunk = Some(coord);
-    state.hovered_valid = valid;
+    if let Some(ActiveToolSession::Expansion(expansion)) = session.active.as_mut() {
+        let coord = store.world_to_chunk_coord(pointer.world_pos);
+        let validation = validate_chunk_purchase(&world, &store, coord, StoreChunkKind::Default);
+        let valid = validation.valid;
 
-    if gate.primary_click_released && valid {
-        modal_requests.write(ModalRequest::Open(ModalKind::ConfirmPurchaseChunk {
-            coord,
-            kind: StoreChunkKind::Default,
-        }));
-    }
-}
+        if expansion.hovered_coord != Some(coord) {
+            info!(
+                "Hovered expansion chunk {:?}, valid={}, reason={:?}",
+                coord, valid, validation.reason
+            );
+        }
 
-fn clear_expansion_tool_state(mut state: ResMut<ExpansionToolState>) {
-    state.hovered_chunk = None;
-    state.hovered_valid = false;
+        expansion.hovered_coord = Some(coord);
+        expansion.hovered_validation = Some(validation);
+
+        if gate.primary_click_released && valid {
+            expansion.pending_modal_coord = Some(coord);
+            modal_requests.write(ModalRequest::Open(ModalKind::ConfirmPurchaseChunk {
+                coord,
+                kind: StoreChunkKind::Default,
+            }));
+        }
+    }
 }

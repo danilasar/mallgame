@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, PointerContext};
-use crate::objects::components::{Movable, Selected, StoreObject, WorldPos};
+use crate::objects::components::{Movable, Selected, StoreObject, WorldPos, FootAnchor, Footprint, VisualOffset, SortLayer, SortBias, ProjectedPos};
 use crate::tools::{
-    ActiveToolAction, MoveObjectCommitted, StartMoveObjectRequested, ToolContext, ToolDescriptor,
-    ToolInputGate, ToolMode, ToolRegistry, ToolSet,
+    ActiveToolSession, MoveObjectCommitted, StartMoveObjectRequested, ToolContext, ToolDescriptor,
+    ToolInputGate, ToolMode, ToolRegistry, ToolSet, ToolSessionState, MoveToolSession, ToolPreview, ToolPreviewKind, NonInteractive, PreviewSource, PlacementPreview,
 };
 
 pub struct MoveToolPlugin;
@@ -23,40 +23,64 @@ impl Plugin for MoveToolPlugin {
         app.add_systems(
             Update,
             (
-                start_move_object_requests.run_if(in_state(ToolMode::Move)),
-                move_tool_system.run_if(in_state(ToolMode::Move)),
+                apply_start_move_object_requests,
+                move_tool_system,
             )
                 .chain()
+                .run_if(in_state(ToolMode::Move))
                 .in_set(ToolSet::ToolUpdate),
         )
-        .add_systems(OnExit(ToolMode::Move), cancel_active_move_on_exit);
+        .add_systems(OnExit(ToolMode::Move), cleanup_move_session);
     }
 }
 
-pub fn start_move_object_requests(
+pub fn apply_start_move_object_requests(
     mut commands: Commands,
     mut requests: MessageReader<StartMoveObjectRequested>,
-    movable: Query<(), (With<Movable>, With<StoreObject>)>,
+    movable: Query<(&WorldPos, &FootAnchor, &Footprint, &VisualOffset, &Sprite, &SortBias), (With<Movable>, With<StoreObject>)>,
     selected: Query<Entity, With<Selected>>,
-    positions: Query<&WorldPos>,
-    mut tool: ResMut<ToolContext>,
+    mut session: ResMut<ToolSessionState>,
 ) {
     for request in requests.read() {
-        if movable.get(request.entity).is_err() {
-            continue;
-        }
-        for selected_entity in &selected {
-            commands.entity(selected_entity).remove::<Selected>();
-        }
-        commands.entity(request.entity).insert(Selected);
+        if let Ok((world_pos, foot_anchor, footprint, visual_offset, sprite, sort_bias)) = movable.get(request.entity) {
+            // Cleanup existing session if any
+            crate::tools::cleanup_current_session(&mut commands, &mut session, crate::tools::ToolSessionEndReason::Replaced);
 
-        if let Ok(world_pos) = positions.get(request.entity) {
-            tool.active = Some(ActiveToolAction::Moving {
-                entity: request.entity,
+            for selected_entity in &selected {
+                commands.entity(selected_entity).remove::<Selected>();
+            }
+            commands.entity(request.entity).insert(Selected);
+
+            // Spawn preview entity
+            let preview_entity = commands.spawn((
+                Sprite {
+                    image: sprite.image.clone(),
+                    custom_size: sprite.custom_size,
+                    color: Color::srgba(0.65, 0.90, 1.0, 0.55),
+                    ..default()
+                },
+                *world_pos,
+                ProjectedPos::default(),
+                *foot_anchor,
+                *visual_offset,
+                SortLayer::DragPreview,
+                *sort_bias,
+                footprint.clone(),
+                ToolPreview,
+                ToolPreviewKind::Move { source_entity: request.entity },
+                PlacementPreview { validation: None },
+                NonInteractive,
+                Name::new(format!("MovePreview of {:?}", request.entity)),
+            )).id();
+
+            commands.entity(request.entity).insert(PreviewSource { preview_entity });
+
+            session.active = Some(ActiveToolSession::Move(MoveToolSession {
+                source_entity: request.entity,
+                preview_entity,
                 original_world_pos: world_pos.0,
-                current_world_pos: world_pos.0,
-                valid: true,
-            });
+                rotation_index: 0, 
+            }));
         }
     }
 }
@@ -65,91 +89,73 @@ pub fn move_tool_system(
     mut commands: Commands,
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
-    movable: Query<(), (With<Movable>, With<StoreObject>)>,
-    mut positions: Query<&mut WorldPos>,
-    selected: Query<Entity, With<Selected>>,
-    mut tool: ResMut<ToolContext>,
+    movable: Query<Entity, (With<Movable>, With<StoreObject>)>,
+    mut ghost_positions: Query<(&mut WorldPos, &PlacementPreview), (With<ToolPreview>, Without<StoreObject>)>,
+    mut session: ResMut<ToolSessionState>,
     mut committed: MessageWriter<MoveObjectCommitted>,
+    mut requests: MessageWriter<StartMoveObjectRequested>,
+    mut tool: ResMut<ToolContext>,
 ) {
     tool.sync_from_pointer(&pointer);
-
     if !gate.can_use_world() {
         return;
     }
 
     if gate.cancel_requested {
-        cancel_active_move(&mut tool, &mut positions);
+        crate::tools::cleanup_current_session(
+            &mut commands,
+            &mut session,
+            crate::tools::ToolSessionEndReason::Cancelled,
+        );
         return;
     }
 
-    let pointer_world = tool.pointer_world;
-    if let Some(ActiveToolAction::Moving {
-        entity,
-        original_world_pos,
-        current_world_pos,
-        valid,
-    }) = tool.active.as_mut()
-    {
-        *current_world_pos = pointer_world;
-        if let Ok(mut world_pos) = positions.get_mut(*entity) {
-            world_pos.0 = *current_world_pos;
-        }
+    if let Some(ActiveToolSession::Move(move_session)) = &session.active {
+        let source_entity = move_session.source_entity;
+        let preview_entity = move_session.preview_entity;
 
-        if gate.primary_click_released {
-            let entity = *entity;
-            let old_pos = *original_world_pos;
-            let new_pos = *current_world_pos;
-            let is_valid = *valid;
+        if let Ok((mut world_pos, preview)) = ghost_positions.get_mut(preview_entity) {
+            world_pos.0 = pointer.world_pos;
 
-            if is_valid {
-                committed.write(MoveObjectCommitted {
-                    entity,
-                    old_pos,
-                    new_pos,
-                });
-            } else if let Ok(mut world_pos) = positions.get_mut(entity) {
-                world_pos.0 = old_pos;
+            if gate.primary_click_released {
+                let is_valid = preview.validation.as_ref().map_or(false, |r| r.is_ok());
+                if is_valid {
+                    committed.write(MoveObjectCommitted {
+                        entity: source_entity,
+                        old_pos: move_session.original_world_pos,
+                        new_pos: world_pos.0,
+                        rotation: move_session.rotation_index,
+                    });
+                }
+                crate::tools::cleanup_current_session(
+                    &mut commands,
+                    &mut session,
+                    if is_valid {
+                        crate::tools::ToolSessionEndReason::Committed
+                    } else {
+                        crate::tools::ToolSessionEndReason::Cancelled
+                    },
+                );
             }
-            tool.active = None;
         }
         return;
     }
 
+    // Start move via click
     if gate.primary_click_released {
         if let Some(entity) = tool.hovered.filter(|entity| movable.get(*entity).is_ok()) {
-            for selected_entity in &selected {
-                commands.entity(selected_entity).remove::<Selected>();
-            }
-            commands.entity(entity).insert(Selected);
-
-            if let Ok(world_pos) = positions.get(entity) {
-                tool.active = Some(ActiveToolAction::Moving {
-                    entity,
-                    original_world_pos: world_pos.0,
-                    current_world_pos: pointer_world,
-                    valid: true,
-                });
-            }
+            requests.write(StartMoveObjectRequested { entity });
         }
     }
 }
 
-pub fn cancel_active_move(tool: &mut ToolContext, positions: &mut Query<&mut WorldPos>) {
-    if let Some(ActiveToolAction::Moving {
-        entity,
-        original_world_pos,
-        ..
-    }) = tool.active.take()
-    {
-        if let Ok(mut world_pos) = positions.get_mut(entity) {
-            world_pos.0 = original_world_pos;
-        }
-    }
-}
-
-pub fn cancel_active_move_on_exit(
-    mut tool: ResMut<ToolContext>,
-    mut positions: Query<&mut WorldPos>,
+pub fn cleanup_move_session(
+    mut commands: Commands,
+    mut session: ResMut<ToolSessionState>,
 ) {
-    cancel_active_move(&mut tool, &mut positions);
+    crate::tools::cleanup_current_session(
+        &mut commands,
+        &mut session,
+        crate::tools::ToolSessionEndReason::Replaced,
+    );
 }

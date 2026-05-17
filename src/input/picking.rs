@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::input::PointerContext;
 use crate::objects::components::*;
+use crate::tools::NonInteractive;
 use crate::presentation::{IsoProjection, world_to_iso};
 
 pub fn update_hovered_object(
@@ -16,7 +17,7 @@ pub fn update_hovered_object(
             &Transform,
             &SortLayer,
         ),
-        With<Interactive>,
+        (With<Interactive>, Without<NonInteractive>),
     >,
 ) {
     if !pointer.has_pointer || pointer.over_ui {

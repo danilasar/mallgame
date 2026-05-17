@@ -4,7 +4,7 @@ use crate::objects::components::{Footprint, WorldPos};
 use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
-use crate::tools::{ActiveToolAction, StartMoveObjectRequested, ToolContext, ToolMode};
+use crate::tools::{StartMoveObjectRequested, ToolContext, ToolMode};
 use crate::ui::{
     BlocksWorldInput, UiSet, WorldWidgetsLayer,
     buttons::{UiFonts, label_text},
@@ -53,6 +53,7 @@ fn rotate_widget_button_system(
 fn update_contextual_world_widgets(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
+    session: Res<crate::tools::ToolSessionState>,
     tool: Res<ToolContext>,
     projection: Res<IsoProjection>,
     mut widgets: Query<(Entity, &mut RotateWorldWidget, &mut Node, &Interaction)>,
@@ -68,7 +69,7 @@ fn update_contextual_world_widgets(
         return;
     };
 
-    if matches!(tool.active, Some(ActiveToolAction::Moving { .. })) {
+    if session.active.is_some() {
         for (entity, _, _, _) in &mut widgets {
             commands.entity(entity).despawn();
         }

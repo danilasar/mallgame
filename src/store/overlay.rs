@@ -7,7 +7,7 @@ use crate::store::{
     StoreArea, StoreChunkCoord, StoreChunkKind, WorldBounds, side_neighbors,
     validate_chunk_purchase,
 };
-use crate::tools::{ExpansionToolState, ToolMode};
+use crate::tools::{ToolMode, ToolSessionState, ActiveToolSession};
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct StoreChunkOverlay {
@@ -41,7 +41,7 @@ fn update_store_chunk_overlays(
     mode: Res<State<ToolMode>>,
     store: Option<Res<StoreArea>>,
     world: Option<Res<WorldBounds>>,
-    expansion: Res<ExpansionToolState>,
+    session: Res<ToolSessionState>,
     projection: Res<IsoProjection>,
     overlays: Query<Entity, With<StoreChunkOverlaySegment>>,
 ) {
@@ -60,7 +60,7 @@ fn update_store_chunk_overlays(
             &store,
             coord,
             StoreChunkOverlayKind::Owned,
-            Color::srgba(1.0, 1.0, 1.0, 0.25), // Прозрачный белый
+            Color::srgba(1.0, 1.0, 1.0, 0.25),
             2.0,
             SortLayer::StoreOverlay.base_z(),
             *projection,
@@ -71,9 +71,15 @@ fn update_store_chunk_overlays(
         return;
     }
 
+    let (hovered_chunk, hovered_valid) = if let Some(ActiveToolSession::Expansion(exp)) = &session.active {
+        (exp.hovered_coord, exp.hovered_validation.as_ref().map_or(false, |v| v.valid))
+    } else {
+        (None, false)
+    };
+
     for coord in available_expansion_chunks(&world, &store) {
         let (kind, color, thickness, z) =
-            if expansion.hovered_chunk == Some(coord) && expansion.hovered_valid {
+            if hovered_chunk == Some(coord) && hovered_valid {
                 (
                     StoreChunkOverlayKind::HoveredAvailable,
                     Color::srgba(1.0, 0.86, 0.20, 0.88),
@@ -83,7 +89,7 @@ fn update_store_chunk_overlays(
             } else {
                 (
                     StoreChunkOverlayKind::Available,
-                    Color::srgba(1.0, 1.0, 1.0, 0.15), // Тонкий белый для доступных
+                    Color::srgba(1.0, 1.0, 1.0, 0.15),
                     4.0,
                     SortLayer::StoreOverlay.base_z() + 10.0,
                 )

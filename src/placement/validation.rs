@@ -3,70 +3,41 @@ use bevy::prelude::*;
 use crate::objects::components::*;
 use crate::placement::footprints_intersect;
 use crate::store::{PlacementInvalidReason, StoreArea, WorldBounds, validate_polygon_in_store};
-use crate::tools::{ActiveToolAction, ToolContext};
 
-pub fn validate_active_placement(
-    mut tool: ResMut<ToolContext>,
-    world: Res<WorldBounds>,
-    store: Res<StoreArea>,
-    footprints: Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
-) {
-    let Some(active) = tool.active.as_mut() else {
-        return;
-    };
+#[derive(Debug, Clone, Default)]
+pub struct PlacementValidationOptions {
+    pub ignore_entity: Option<Entity>,
+}
 
-    let (moving_entity, candidate_pos, active_footprint) = match active {
-        ActiveToolAction::Moving {
-            entity,
-            current_world_pos,
-            ..
-        } => {
-            let Ok((_, _, footprint, _)) = footprints.get(*entity) else {
-                return;
-            };
-            (Some(*entity), *current_world_pos, footprint.clone())
-        }
-        ActiveToolAction::Building {
-            ghost,
-            current_world_pos,
-            ..
-        } => {
-            let Ok((_, _, footprint, _)) = footprints.get(*ghost) else {
-                return;
-            };
-            (Some(*ghost), *current_world_pos, footprint.clone())
-        }
-        ActiveToolAction::PendingDelete { .. } => return,
-    };
+pub fn validate_placement(
+    world_bounds: &WorldBounds,
+    store_area: &StoreArea,
+    footprints: &Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
+    active_footprint: &Footprint,
+    candidate_pos: Vec2,
+    options: PlacementValidationOptions,
+) -> Result<(), PlacementInvalidReason> {
+    // 1. Check world and store area bounds
+    validate_polygon_in_store(world_bounds, store_area, active_footprint, candidate_pos)?;
 
-    let store_valid =
-        validate_polygon_in_store(&world, &store, &active_footprint, candidate_pos).is_ok();
-
+    // 2. Check for intersections with blocking objects
     let intersects_blocker = footprints
         .iter()
-        .filter(|(entity, _, _, blocks)| Some(*entity) != moving_entity && blocks.is_some())
+        .filter(|(entity, _, _, blocks)| {
+            blocks.is_some() && Some(*entity) != options.ignore_entity
+        })
         .any(|(_, other_pos, other_footprint, _)| {
             footprints_intersect(
-                &active_footprint,
+                active_footprint,
                 candidate_pos,
                 other_footprint,
                 other_pos.0,
             )
         });
 
-    let valid = store_valid && !intersects_blocker;
-    if !valid {
-        let reason = if !store_valid {
-            PlacementInvalidReason::OutsideOwnedStoreArea
-        } else {
-            PlacementInvalidReason::IntersectsBlockingObject
-        };
-        let _ = reason;
+    if intersects_blocker {
+        return Err(PlacementInvalidReason::IntersectsBlockingObject);
     }
 
-    match active {
-        ActiveToolAction::Moving { valid: v, .. } => *v = valid,
-        ActiveToolAction::Building { valid: v, .. } => *v = valid,
-        ActiveToolAction::PendingDelete { .. } => {}
-    }
+    Ok(())
 }
