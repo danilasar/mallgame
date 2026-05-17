@@ -1,0 +1,15 @@
+[package]
+name = "mallgame"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { version = "0.18.1", default-features = false, features = [
+    "default_app",
+    "bevy_winit",
+    "x11",
+    "std",
+    "multi_threaded",
+    "2d_bevy_render",
+    "png",
+] }
