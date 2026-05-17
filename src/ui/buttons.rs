@@ -30,7 +30,7 @@ pub fn ui_button(label: &'static str, width: f32, height: f32) -> impl Bundle {
     )
 }
 
-pub fn label_text(label: &'static str, fonts: &UiFonts) -> impl Bundle {
+pub fn label_text(label: impl Into<String>, fonts: &UiFonts) -> impl Bundle {
     (
         Text::new(label),
         TextFont {
@@ -42,7 +42,7 @@ pub fn label_text(label: &'static str, fonts: &UiFonts) -> impl Bundle {
     )
 }
 
-pub fn ui_text(label: &'static str, font_size: f32, color: Color, fonts: &UiFonts) -> impl Bundle {
+pub fn ui_text(label: impl Into<String>, font_size: f32, color: Color, fonts: &UiFonts) -> impl Bundle {
     (
         Text::new(label),
         TextFont {

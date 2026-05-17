@@ -178,7 +178,7 @@ mod tests {
         }
         // If we buy something else and (0,0) is still empty, it might be a hole.
         // wait, would_create_hole(chunks, candidate) checks if adding candidate creates a hole.
-        
+
         // Let's setup a ring with one missing link
         let mut chunks = HashMap::new();
         for coord in [
@@ -205,7 +205,8 @@ mod tests {
     }
 
     #[test]
-    fn diagonal_purchase_without_filling_middle_is_not_hole_per_se_but_flood_fill_checks_enclosed_empty_space() {
+    fn diagonal_purchase_without_filling_middle_is_not_hole_per_se_but_flood_fill_checks_enclosed_empty_space()
+     {
         let mut chunks = HashMap::new();
         chunks.insert(StoreChunkCoord { x: 0, y: 0 }, data());
         // (1,1) is diagonal. Adding it doesn't enclose any space.

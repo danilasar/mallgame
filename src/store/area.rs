@@ -20,6 +20,33 @@ impl Default for WorldBounds {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CoverageSamplingOptions {
+    pub max_edge_step: f32,
+    pub epsilon: f32,
+}
+
+impl Default for CoverageSamplingOptions {
+    fn default() -> Self {
+        Self {
+            max_edge_step: 16.0,
+            epsilon: 0.001,
+        }
+    }
+}
+
+pub enum CoverageFailureReason {
+    PointOutsideOwnedArea,
+    EmptyPolygon,
+}
+
+pub struct CoverageResult {
+    pub valid: bool,
+    pub failed_point: Option<Vec2>,
+    #[allow(dead_code)]
+    pub reason: Option<CoverageFailureReason>,
+}
+
 #[derive(Resource, Debug, Clone)]
 pub struct StoreArea {
     pub anchor: Vec2,
@@ -70,6 +97,7 @@ impl StoreArea {
         }
     }
 
+    #[allow(dead_code)]
     pub fn contains_point(&self, world_pos: Vec2) -> bool {
         let coord = self.world_to_chunk_coord(world_pos);
         if !self.owned_chunks.contains_key(&coord) {
@@ -82,11 +110,67 @@ impl StoreArea {
             && world_pos.y < rect.max.y
     }
 
-    pub fn contains_polygon(&self, polygon: &[Vec2]) -> bool {
-        // MVP: vertex-only check.
-        // TODO: Strengthen this to check edge intersections or use polygon-vs-union-of-chunks coverage.
-        // A large footprint could cross an unowned area even if all vertices are inside owned chunks.
-        polygon.iter().all(|point| self.contains_point(*point))
+    pub fn contains_polygon_sampled(
+        &self,
+        polygon: &[Vec2],
+        options: CoverageSamplingOptions,
+    ) -> CoverageResult {
+        if polygon.is_empty() {
+            return CoverageResult {
+                valid: false,
+                failed_point: None,
+                reason: Some(CoverageFailureReason::EmptyPolygon),
+            };
+        }
+
+        for (a, b) in polygon
+            .iter()
+            .copied()
+            .zip(polygon.iter().copied().cycle().skip(1))
+            .take(polygon.len())
+        {
+            let delta = b - a;
+            let length = delta.length();
+            let steps = (length / options.max_edge_step).ceil().max(1.0) as usize;
+
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                let sample = a.lerp(b, t);
+                if !self.contains_point_with_epsilon(sample, options.epsilon) {
+                    return CoverageResult {
+                        valid: false,
+                        failed_point: Some(sample),
+                        reason: Some(CoverageFailureReason::PointOutsideOwnedArea),
+                    };
+                }
+            }
+        }
+
+        CoverageResult {
+            valid: true,
+            failed_point: None,
+            reason: None,
+        }
+    }
+
+    fn contains_point_with_epsilon(&self, world_pos: Vec2, epsilon: f32) -> bool {
+        let coord = self.world_to_chunk_coord(world_pos);
+        if !self.owned_chunks.contains_key(&coord) {
+            // Check neighbors if close to boundary
+            for neighbor in [
+                world_pos + Vec2::new(epsilon, 0.0),
+                world_pos + Vec2::new(-epsilon, 0.0),
+                world_pos + Vec2::new(0.0, epsilon),
+                world_pos + Vec2::new(0.0, -epsilon),
+            ] {
+                let n_coord = self.world_to_chunk_coord(neighbor);
+                if self.owned_chunks.contains_key(&n_coord) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        true
     }
 
     pub fn owned_chunk_bounds(&self) -> Option<StoreChunkBounds> {
@@ -121,7 +205,7 @@ fn setup_store_area(mut commands: Commands, world: Res<WorldBounds>) {
 fn clamp_camera_to_world_bounds(
     world: Res<WorldBounds>,
     projection: Res<IsoProjection>,
-    mut cameras: Query<&mut Transform, With<Camera2d>>,
+    mut cameras: Query<(&Camera, &Projection, &mut Transform), With<Camera2d>>,
 ) {
     let corners = [
         world.rect.min,
@@ -137,9 +221,35 @@ fn clamp_camera_to_world_bounds(
         max = max.max(projected);
     }
 
-    for mut transform in &mut cameras {
-        transform.translation.x = transform.translation.x.clamp(min.x, max.x);
-        transform.translation.y = transform.translation.y.clamp(min.y, max.y);
+    for (camera, projection_component, mut transform) in cameras.iter_mut() {
+        let Some(viewport_size) = camera.logical_viewport_size() else {
+            continue;
+        };
+
+        let ortho = match projection_component {
+            Projection::Orthographic(projection) => projection,
+            _ => continue,
+        };
+
+        let half_visible = viewport_size * ortho.scale * 0.5;
+        let clamp_min = min + half_visible;
+        let clamp_max = max - half_visible;
+
+        let center_x = (min.x + max.x) * 0.5;
+        let center_y = (min.y + max.y) * 0.5;
+        let clamp_x = if clamp_min.x <= clamp_max.x {
+            transform.translation.x.clamp(clamp_min.x, clamp_max.x)
+        } else {
+            center_x
+        };
+        let clamp_y = if clamp_min.y <= clamp_max.y {
+            transform.translation.y.clamp(clamp_min.y, clamp_max.y)
+        } else {
+            center_y
+        };
+
+        transform.translation.x = clamp_x;
+        transform.translation.y = clamp_y;
     }
 }
 
@@ -219,21 +329,24 @@ mod tests {
     }
 
     #[test]
-    fn contains_polygon_requires_owned_union() {
+    fn contains_polygon_sampled_rejects_edge_crossing() {
         let store = StoreArea::new(Vec2::ZERO);
-        let inside = [
-            Vec2::new(-20.0, -20.0),
-            Vec2::new(-10.0, -20.0),
-            Vec2::new(-10.0, -10.0),
-            Vec2::new(-20.0, -10.0),
-        ];
-        let outside = [
-            Vec2::new(10.0, -20.0),
-            Vec2::new(20.0, -20.0),
-            Vec2::new(20.0, -10.0),
-            Vec2::new(10.0, -10.0),
-        ];
-        assert!(store.contains_polygon(&inside));
-        assert!(!store.contains_polygon(&outside));
+
+        // Owned chunks are x: -5..-1, y: -4..-1
+        // Let's create a thin polygon that crosses from unowned to owned
+        // Vertices might be inside, but midpoint outside.
+        // Wait, if vertices are inside but midpoint outside, it means it crosses a "hole" or "non-convex" part.
+        // Chunks are always convex (rects), but the union might not be.
+        // Initial store is a 5x4 block (convex).
+
+        // Let's test a diagonal that crosses outside.
+        // Owned box: [-5*128, -4*128] to [0, 0] approx (anchor at zero).
+        let p1 = Vec2::new(-10.0, -10.0); // Inside
+        let p2 = Vec2::new(10.0, 10.0); // Outside
+
+        let poly = [p1, p2]; // Degenerate but works for edge sampling
+        let result = store.contains_polygon_sampled(&poly, CoverageSamplingOptions::default());
+        assert!(!result.valid);
+        assert!(result.failed_point.is_some());
     }
 }

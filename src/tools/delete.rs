@@ -1,11 +1,11 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, PointerContext};
+use crate::input::{InputAction, PointerContext, PointerTargets};
 use crate::objects::components::{Deletable, StoreObject};
 use crate::tools::{
-    ActiveToolAction, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry, ToolSet,
+    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, ToolContext, ToolDescriptor,
+    ToolInputGate, ToolMode, ToolRegistry, ToolSet,
 };
-use crate::ui::{ModalKind, ModalRequest};
 
 pub struct DeleteToolPlugin;
 
@@ -31,29 +31,25 @@ impl Plugin for DeleteToolPlugin {
 
 pub fn delete_tool_system(
     pointer: Res<PointerContext>,
+    targets: Res<PointerTargets>,
     gate: Res<ToolInputGate>,
     deletable: Query<(), (With<Deletable>, With<StoreObject>)>,
     mut tool: ResMut<ToolContext>,
-    mut modal_requests: MessageWriter<ModalRequest>,
+    mut actions: MessageWriter<ObjectActionRequested>,
 ) {
-    tool.sync_from_pointer(&pointer);
+    tool.sync_from_pointer(&pointer, &targets);
 
     if !gate.can_use_world() {
         return;
     }
 
     if gate.primary_world_click_released {
-        if let Some(entity) = tool.hovered.filter(|entity| deletable.get(*entity).is_ok()) {
-            tool.active = Some(ActiveToolAction::PendingDelete { entity });
-            open_confirm_delete_modal(&mut modal_requests, entity);
+        if let Some(entity) = tool.hovered_object.filter(|entity| deletable.get(*entity).is_ok()) {
+            actions.write(ObjectActionRequested {
+                entity,
+                action: ObjectActionKind::Delete,
+                origin: ObjectActionOrigin::CursorClick,
+            });
         }
     }
-}
-
-pub fn open_confirm_delete_modal(requests: &mut MessageWriter<ModalRequest>, entity: Entity) {
-    requests.write(ModalRequest::Open(ModalKind::ConfirmDelete { entity }));
-    info!(
-        "Confirm delete modal opened for entity={:?}. Enter=confirm, Escape/right click=cancel",
-        entity
-    );
 }

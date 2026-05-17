@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::objects::components::*;
-use crate::placement::footprints_intersect;
-use crate::store::{PlacementInvalidReason, StoreArea, WorldBounds, validate_polygon_in_store};
+use crate::placement::world_polygon;
+use crate::store::{PlacementInvalidReason, StoreArea, WorldBounds};
 
 #[derive(Debug, Clone, Default)]
 pub struct PlacementValidationOptions {
@@ -18,16 +18,32 @@ pub fn validate_placement(
     options: PlacementValidationOptions,
 ) -> Result<(), PlacementInvalidReason> {
     // 1. Check world and store area bounds
-    validate_polygon_in_store(world_bounds, store_area, active_footprint, candidate_pos)?;
+    if !world_bounds.rect.contains(candidate_pos) {
+        return Err(PlacementInvalidReason::OutsideWorldBounds);
+    }
+
+    let polygon = world_polygon(active_footprint, candidate_pos);
+    let coverage = store_area.contains_polygon_sampled(
+        &polygon,
+        crate::store::CoverageSamplingOptions {
+            max_edge_step: store_area.cell_size.x * 0.5,
+            epsilon: 0.001,
+        },
+    );
+
+    if !coverage.valid {
+        if let Some(point) = coverage.failed_point {
+            debug!("Placement failed at point {:?}", point);
+        }
+        return Err(PlacementInvalidReason::OutsideOwnedStoreArea);
+    }
 
     // 2. Check for intersections with blocking objects
     let intersects_blocker = footprints
         .iter()
-        .filter(|(entity, _, _, blocks)| {
-            blocks.is_some() && Some(*entity) != options.ignore_entity
-        })
+        .filter(|(entity, _, _, blocks)| blocks.is_some() && Some(*entity) != options.ignore_entity)
         .any(|(_, other_pos, other_footprint, _)| {
-            footprints_intersect(
+            crate::placement::footprints_intersect(
                 active_footprint,
                 candidate_pos,
                 other_footprint,

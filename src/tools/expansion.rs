@@ -1,12 +1,10 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, InputActionState, PointerContext};
-use crate::store::{
-    StoreArea, StoreChunkKind, WorldBounds, validate_chunk_purchase,
-};
+use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
+use crate::store::{StoreArea, StoreChunkKind, WorldBounds, validate_chunk_purchase};
 use crate::tools::{
-    ToolContext, ToolInputGate, ToolMode, ToolSet, ToolSessionState, ActiveToolSession,
-    ExpansionToolSession, ReturnToPreviousToolRequested,
+    ActiveToolSession, ExpansionToolSession, ReturnToPreviousToolRequested, ToolContext,
+    ToolInputGate, ToolMode, ToolSessionState, ToolSet,
 };
 use crate::ui::{ModalKind, ModalRequest};
 
@@ -25,9 +23,7 @@ impl Plugin for ExpansionToolPlugin {
     }
 }
 
-fn start_expansion_session(
-    mut session: ResMut<ToolSessionState>,
-) {
+fn start_expansion_session(mut session: ResMut<ToolSessionState>) {
     session.active = Some(ActiveToolSession::Expansion(ExpansionToolSession {
         hovered_coord: None,
         hovered_validation: None,
@@ -36,9 +32,7 @@ fn start_expansion_session(
     }));
 }
 
-fn cleanup_expansion_session(
-    mut session: ResMut<ToolSessionState>,
-) {
+fn cleanup_expansion_session(mut session: ResMut<ToolSessionState>) {
     if matches!(session.active, Some(ActiveToolSession::Expansion(_))) {
         session.active = None;
     }
@@ -46,6 +40,7 @@ fn cleanup_expansion_session(
 
 fn expansion_tool_system(
     pointer: Res<PointerContext>,
+    targets: Res<PointerTargets>,
     gate: Res<ToolInputGate>,
     actions: Res<InputActionState>,
     world: Res<WorldBounds>,
@@ -55,7 +50,7 @@ fn expansion_tool_system(
     mut modal_requests: MessageWriter<ModalRequest>,
     mut return_request: MessageWriter<ReturnToPreviousToolRequested>,
 ) {
-    tool.sync_from_pointer(&pointer);
+    tool.sync_from_pointer(&pointer, &targets);
     if !gate.can_use_world() {
         return;
     }
@@ -67,7 +62,9 @@ fn expansion_tool_system(
 
     if let Some(ActiveToolSession::Expansion(expansion)) = session.active.as_mut() {
         // Reset freshness once button is fully released (and not in the release frame itself)
-        if !actions.pressed(InputAction::PrimaryClick) && !actions.just_released(InputAction::PrimaryClick) {
+        if !actions.pressed(InputAction::PrimaryClick)
+            && !actions.just_released(InputAction::PrimaryClick)
+        {
             expansion.awaiting_fresh_click = false;
         }
 

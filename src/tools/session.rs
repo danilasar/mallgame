@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use crate::tools::ToolMode;
-use crate::store::StoreChunkCoord;
 use crate::objects::prototypes::BuildPrototypeId;
 use crate::store::ChunkPurchaseValidation;
+use crate::store::StoreChunkCoord;
+use crate::tools::ToolMode;
+use bevy::prelude::*;
 
 #[derive(Resource, Debug, Default)]
 pub struct ToolSessionState {
@@ -77,6 +77,26 @@ pub enum ToolSessionEndReason {
     Replaced,
     Returned,
     Committed,
+    #[allow(dead_code)]
     EntityDespawned,
+    #[allow(dead_code)]
     UiSurfaceClosed,
+}
+
+#[allow(dead_code)]
+pub fn despawn_runtime_owned(
+    owner: crate::objects::components::RuntimeOwner,
+    commands: &mut Commands,
+    query: &Query<(Entity, &crate::objects::components::RuntimeOwned)>,
+) {
+    let mut count = 0;
+    for (entity, owned) in query {
+        if owned.owner == owner {
+            commands.entity(entity).despawn();
+            count += 1;
+        }
+    }
+    if count > 0 {
+        info!("Despawned {} entities owned by {:?}", count, owner);
+    }
 }

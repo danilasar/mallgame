@@ -1,79 +1,53 @@
 use bevy::prelude::*;
 
 use crate::objects::components::*;
-use crate::tools::{ActiveToolAction, ToolContext, ToolMode, PlacementPreview, PreviewSource};
+use crate::tools::{PlacementPreview, PreviewSource, SelectionState, ToolContext, ToolMode};
 
 pub fn update_highlight_intents(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
     tool: Res<ToolContext>,
-    highlighted: Query<Entity, With<HighlightIntent>>,
-    movable: Query<(), With<Movable>>,
-    deletable: Query<(), With<Deletable>>,
-    ghost: Query<(), With<BuildGhost>>,
-    selected: Query<Entity, With<Selected>>,
+    session: Res<crate::tools::ToolSessionState>,
+    selection: Res<SelectionState>,
+    query: Query<(Entity, Option<&Movable>, Option<&Deletable>), With<Interactive>>,
 ) {
-    for entity in &highlighted {
-        commands.entity(entity).remove::<HighlightIntent>();
-    }
+    for (entity, movable, deletable) in &query {
+        let mut highlight_kind = None;
+        let is_selected = selection.primary == Some(entity);
 
-    let mut candidates: Vec<(Entity, HighlightKind)> = Vec::new();
-
-    match &tool.active {
-        Some(ActiveToolAction::Moving { entity, valid, .. }) => {
-            candidates.push((
-                *entity,
-                if *valid {
-                    HighlightKind::MoveValid
-                } else {
-                    HighlightKind::MoveInvalid
-                },
-            ));
-        }
-        Some(ActiveToolAction::Building { ghost, valid, .. }) => {
-            candidates.push((
-                *ghost,
-                if *valid {
-                    HighlightKind::BuildValid
-                } else {
-                    HighlightKind::BuildInvalid
-                },
-            ));
-        }
-        Some(ActiveToolAction::PendingDelete { entity }) => {
-            candidates.push((*entity, HighlightKind::DeleteDanger));
-        }
-        None => {
-            if let Some(entity) = tool.hovered {
-                let kind = match mode.get() {
-                    ToolMode::Move if movable.get(entity).is_ok() => Some(HighlightKind::Hover),
-                    ToolMode::Delete if deletable.get(entity).is_ok() => {
-                        Some(HighlightKind::DeleteDanger)
+        match *mode.get() {
+            ToolMode::Move => {
+                if let Some(crate::tools::ActiveToolSession::Move(move_session)) = &session.active {
+                    if move_session.source_entity == entity {
+                        // source of current move is not highlighted by normal hover/selection logic
                     }
-                    ToolMode::Build if ghost.get(entity).is_ok() => Some(HighlightKind::BuildValid),
-                    ToolMode::Cursor => Some(HighlightKind::Hover),
-                    _ => None,
-                };
-
-                if let Some(kind) = kind {
-                    candidates.push((entity, kind));
+                } else if tool.hovered_object == Some(entity) {
+                    if movable.is_some() {
+                        highlight_kind = Some(HighlightKind::Hover);
+                    }
+                } else if is_selected {
+                    highlight_kind = Some(HighlightKind::Selected);
+                }
+            }
+            ToolMode::Delete => {
+                if tool.hovered_object == Some(entity) && deletable.is_some() {
+                    highlight_kind = Some(HighlightKind::DeleteDanger);
+                }
+            }
+            _ => {
+                if tool.hovered_object == Some(entity) {
+                    highlight_kind = Some(HighlightKind::Hover);
+                } else if is_selected {
+                    highlight_kind = Some(HighlightKind::Selected);
                 }
             }
         }
-    }
 
-    if let Some(entity) = tool.hovered {
-        candidates.push((entity, HighlightKind::Hover));
-    }
-    for entity in &selected {
-        candidates.push((entity, HighlightKind::Selected));
-    }
-
-    candidates.sort_by_key(|(_, kind)| std::cmp::Reverse(kind.priority()));
-    candidates.dedup_by_key(|(entity, _)| *entity);
-
-    for (entity, kind) in candidates {
-        commands.entity(entity).insert(HighlightIntent { kind });
+        if let Some(kind) = highlight_kind {
+            commands.entity(entity).insert(HighlightIntent { kind });
+        } else {
+            commands.entity(entity).remove::<HighlightIntent>();
+        }
     }
 }
 
@@ -81,15 +55,15 @@ pub fn update_highlight_visuals(
     mut query: Query<
         (
             Option<&HighlightIntent>,
-            Option<&Selected>,
             Option<&PlacementPreview>,
             Option<&PreviewSource>,
             &mut Sprite,
         ),
         Without<crate::presentation::FootprintOutlineSegment>,
     >,
+    _tool: Res<ToolContext>,
 ) {
-    for (highlight, selected, placement_preview, preview_source, mut sprite) in &mut query {
+    for (highlight, placement_preview, preview_source, mut sprite) in &mut query {
         let base_color = match highlight.map(|intent| intent.kind) {
             Some(HighlightKind::MoveInvalid | HighlightKind::BuildInvalid) => {
                 Color::srgba(1.0, 0.32, 0.28, 0.82)
@@ -100,7 +74,6 @@ pub fn update_highlight_visuals(
             }
             Some(HighlightKind::Hover) => Color::srgb(1.0, 0.94, 0.62),
             Some(HighlightKind::Selected) => Color::srgb(0.62, 0.82, 1.0),
-            None if selected.is_some() => Color::srgb(0.62, 0.82, 1.0),
             None => Color::WHITE,
         };
 

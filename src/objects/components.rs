@@ -87,12 +87,16 @@ pub struct Deletable;
 pub struct BuildGhost;
 
 #[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct GhostOf {
     pub prototype: BuildPrototypeId,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
-pub struct Selected;
+pub struct Selectable;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Inspectable;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct HighlightIntent {
@@ -100,6 +104,7 @@ pub struct HighlightIntent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum HighlightKind {
     Hover,
     Selected,
@@ -111,6 +116,7 @@ pub enum HighlightKind {
 }
 
 impl HighlightKind {
+    #[allow(dead_code)]
     pub fn priority(self) -> u8 {
         match self {
             HighlightKind::DeleteDanger => 100,
@@ -124,6 +130,34 @@ impl HighlightKind {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PlaceableAssetId(pub &'static str);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InteractionRole {
+    WorldObject,
+    WorldWidget,
+    ToolPreview,
+    Overlay,
+    #[allow(dead_code)]
+    Debug,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeOwner {
+    ToolPreview,
+    WorldWidget,
+    ExpansionOverlay,
+    FootprintOverlay,
+    StoreOverlay,
+    #[allow(dead_code)]
+    SelectionHighlight,
+    #[allow(dead_code)]
+    DebugOverlay,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeOwned {
+    pub owner: RuntimeOwner,
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct StoreObject;

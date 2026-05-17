@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::objects::prototypes::BuildPrototypeId;
 use crate::store::PlacementInvalidReason;
+use bevy::prelude::*;
 
 /// Marker for entities that are temporary tool previews.
 #[derive(Component, Debug, Clone, Copy)]
@@ -11,13 +11,10 @@ pub struct ToolPreview;
 pub struct NonInteractive;
 
 #[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum ToolPreviewKind {
-    Build {
-        prototype_id: BuildPrototypeId,
-    },
-    Move {
-        source_entity: Entity,
-    },
+    Build { prototype_id: BuildPrototypeId },
+    Move { source_entity: Entity },
 }
 
 #[derive(Component, Debug, Clone)]

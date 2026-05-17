@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext};
-use crate::tools::{PrimaryPointerCycle, PointerPressOwner};
+use crate::tools::{PointerPressOwner, PrimaryPointerCycle};
 use crate::ui::ModalStack;
 
 #[derive(Resource, Debug, Clone)]

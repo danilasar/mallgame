@@ -8,6 +8,7 @@ pub mod mode;
 pub mod move_tool;
 pub mod preview;
 pub mod session;
+pub mod selection;
 
 pub use build::*;
 pub use context::*;
@@ -19,13 +20,14 @@ pub use mode::*;
 pub use move_tool::*;
 pub use preview::*;
 pub use session::*;
+pub use selection::*;
 
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
 use crate::objects::prototypes::{BuildPrototypeId, spawn_object_from_prototype};
-use crate::objects::rotation::Rotatable;
+use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::store::{StoreArea, WorldBounds};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,7 +42,7 @@ pub struct ToolCorePlugin;
 
 impl Plugin for ToolCorePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ToolPreviewPlugin)
+        app.add_plugins((ToolPreviewPlugin, SelectionPlugin))
             .init_resource::<ToolContext>()
             .init_resource::<ToolInputGate>()
             .init_resource::<PrimaryPointerCycle>()
@@ -54,47 +56,11 @@ impl Plugin for ToolCorePlugin {
             .add_message::<StartMoveObjectRequested>()
             .add_message::<ToolChangedRequested>()
             .add_message::<ActivateToolRequested>()
-            .add_message::<ReturnToPreviousToolRequested>()
-            .configure_sets(
-                Update,
-                (
-                    ToolSet::InputGate,
-                    ToolSet::ToolUpdate,
-                    ToolSet::Validation,
-                    ToolSet::Commit,
-                )
-                    .chain(),
-            )
-            .add_systems(Update, tool_hotkeys_system)
-            .add_systems(
-                Update,
-                (
-                    update_tool_input_gate.after(crate::input::camera_drag_system),
-                    handle_activate_tool_requested,
-                    handle_return_to_previous_tool_requested,
-                )
-                    .chain()
-                    .in_set(ToolSet::InputGate),
-            )
-            .add_systems(
-                Update,
-                unified_tool_validation_system.in_set(ToolSet::Validation),
-            )
-            .add_systems(
-                Update,
-                (
-                    apply_committed_events,
-                    crate::store::apply_purchase_store_chunk_requested,
-                    log_tool_changed_requests,
-                    print_positions_system,
-                )
-                    .chain()
-                    .in_set(ToolSet::Commit),
-            );
+            .add_message::<ReturnToPreviousToolRequested>();
     }
 }
 
-fn unified_tool_validation_system(
+pub fn unified_tool_validation_system(
     world_bounds: Res<WorldBounds>,
     store_area: Res<StoreArea>,
     mut session: ResMut<ToolSessionState>,
@@ -120,7 +86,8 @@ fn unified_tool_validation_system(
             }
         }
         ActiveToolSession::Move(move_session) => {
-            if let Ok((mut preview, pos, footprint)) = previews.get_mut(move_session.preview_entity) {
+            if let Ok((mut preview, pos, footprint)) = previews.get_mut(move_session.preview_entity)
+            {
                 let result = crate::placement::validate_placement(
                     &world_bounds,
                     &store_area,
@@ -138,7 +105,7 @@ fn unified_tool_validation_system(
     }
 }
 
-fn handle_activate_tool_requested(
+pub fn handle_activate_tool_requested(
     mut commands: Commands,
     mut events: MessageReader<ActivateToolRequested>,
     mut next_mode: ResMut<NextState<ToolMode>>,
@@ -151,10 +118,7 @@ fn handle_activate_tool_requested(
             continue;
         }
 
-        info!(
-            "Activating tool {:?} ({:?})",
-            event.mode, event.kind
-        );
+        info!("Activating tool {:?} ({:?})", event.mode, event.kind);
 
         if event.kind == ToolActivationKind::Replace {
             return_state.previous = None;
@@ -168,7 +132,7 @@ fn handle_activate_tool_requested(
     }
 }
 
-fn handle_return_to_previous_tool_requested(
+pub fn handle_return_to_previous_tool_requested(
     mut commands: Commands,
     mut events: MessageReader<ReturnToPreviousToolRequested>,
     mut next_mode: ResMut<NextState<ToolMode>>,
@@ -194,7 +158,10 @@ pub fn cleanup_current_session(
         return;
     };
 
-    info!("Cleaning up tool session {:?} (Reason: {:?})", active, reason);
+    info!(
+        "Cleaning up tool session {:?} (Reason: {:?})",
+        active, reason
+    );
 
     match active {
         ActiveToolSession::Build(s) => {
@@ -211,12 +178,72 @@ pub fn cleanup_current_session(
 #[derive(Message, Debug, Clone, Copy)]
 pub struct ObjectActionRequested {
     pub entity: Entity,
-    pub action: ObjectAction,
+    pub action: ObjectActionKind,
+    pub origin: ObjectActionOrigin,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ObjectAction {
-    Select,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectActionKind {
+    Inspect,
+    Deselect,
+    Move,
+    Rotate,
+    Delete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectActionOrigin {
+    CursorClick,
+    InspectorButton,
+    WorldWidget,
+    Hotkey,
+}
+
+pub fn handle_object_action_requests(
+    mut _commands: Commands,
+    mut requests: MessageReader<ObjectActionRequested>,
+    mut selection: ResMut<SelectionState>,
+    mut move_requests: MessageWriter<StartMoveObjectRequested>,
+    mut rotate_requests: MessageWriter<RotateObjectRequested>,
+    mut modal_requests: MessageWriter<crate::ui::ModalRequest>,
+    mut tool_activation: MessageWriter<ActivateToolRequested>,
+) {
+    for request in requests.read() {
+        info!("ObjectActionRequested: {:?}", request);
+        match request.action {
+            ObjectActionKind::Inspect => {
+                selection.primary = Some(request.entity);
+            }
+            ObjectActionKind::Deselect => {
+                if selection.primary == Some(request.entity) {
+                    selection.primary = None;
+                }
+            }
+            ObjectActionKind::Move => {
+                // Ensure tool is active
+                tool_activation.write(ActivateToolRequested {
+                    mode: ToolMode::Move,
+                    kind: ToolActivationKind::Replace,
+                });
+                move_requests.write(StartMoveObjectRequested {
+                    entity: request.entity,
+                });
+            }
+            ObjectActionKind::Rotate => {
+                rotate_requests.write(RotateObjectRequested {
+                    entity: request.entity,
+                    steps: 1,
+                });
+            }
+            ObjectActionKind::Delete => {
+                modal_requests.write(crate::ui::ModalRequest::Open(
+                    crate::ui::ModalKind::ConfirmDelete {
+                        entity: request.entity,
+                    },
+                ));
+            }
+        }
+    }
 }
 
 #[derive(Message, Debug, Clone, Copy)]
@@ -254,30 +281,24 @@ pub fn apply_committed_events(
     asset_server: Res<AssetServer>,
     world_bounds: Res<WorldBounds>,
     store_area: Res<StoreArea>,
-    mut object_actions: MessageReader<ObjectActionRequested>,
     mut moves: MessageReader<MoveObjectCommitted>,
     mut deletes: MessageReader<DeleteObjectRequested>,
     mut builds: MessageReader<BuildObjectRequested>,
-    mut selected: Query<Entity, With<Selected>>,
     mut tool: ResMut<ToolContext>,
     mut set: ParamSet<(
         Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
-        Query<(&mut Rotatable, &mut Sprite, &mut Footprint, &mut FootAnchor, &mut VisualOffset), Without<ToolPreview>>,
+        Query<
+            (
+                &mut Rotatable,
+                &mut Sprite,
+                &mut Footprint,
+                &mut FootAnchor,
+                &mut VisualOffset,
+            ),
+            Without<ToolPreview>,
+        >,
     )>,
 ) {
-    for action in object_actions.read() {
-        info!(
-            "ObjectActionRequested entity={:?} action={:?}",
-            action.entity, action.action
-        );
-        if matches!(action.action, ObjectAction::Select) {
-            for entity in &mut selected {
-                commands.entity(entity).remove::<Selected>();
-            }
-            commands.entity(action.entity).insert(Selected);
-        }
-    }
-
     for movement in moves.read() {
         // 1. Revalidate Move using p0
         let validation = {
@@ -304,7 +325,9 @@ pub fn apply_committed_events(
             }
 
             // 2. Apply final rotation using p1
-            if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) = set.p1().get_mut(movement.entity) {
+            if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) =
+                set.p1().get_mut(movement.entity)
+            {
                 if movement.rotation < rotatable.variants.len() {
                     rotatable.current = movement.rotation;
                     let variant = &rotatable.variants[rotatable.current];
@@ -327,7 +350,8 @@ pub fn apply_committed_events(
         } else {
             warn!(
                 "MoveObjectCommitted REJECTED for entity={:?}: {:?}",
-                movement.entity, validation.err()
+                movement.entity,
+                validation.err()
             );
         }
     }
@@ -362,7 +386,13 @@ pub fn apply_committed_events(
         );
 
         if validation.is_ok() {
-            spawn_object_from_prototype(&mut commands, &asset_server, build.prototype, build.pos, build.rotation);
+            spawn_object_from_prototype(
+                &mut commands,
+                &asset_server,
+                build.prototype,
+                build.pos,
+                build.rotation,
+            );
             info!(
                 "BuildObjectRequested prototype={:?} pos=({:.1},{:.1}) rotation={}",
                 build.prototype, build.pos.x, build.pos.y, build.rotation
@@ -370,7 +400,8 @@ pub fn apply_committed_events(
         } else {
             warn!(
                 "BuildObjectRequested REJECTED for prototype={:?}: {:?}",
-                build.prototype, validation.err()
+                build.prototype,
+                validation.err()
             );
         }
     }

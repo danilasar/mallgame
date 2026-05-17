@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, InputActionState, PointerContext};
-use crate::objects::components::WorldPos;
+use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
+use crate::objects::components::{InteractionRole, RuntimeOwned, RuntimeOwner, WorldPos};
 use crate::objects::prototypes::{BuildPrototypeId, BuildPrototypes, spawn_ghost_from_prototype};
 use crate::tools::{
     ActivateToolRequested, ActiveToolSession, BuildObjectRequested, BuildToolSession,
-    ToolActivationKind, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry,
-    ToolSessionState, ToolSet, ToolPreview, ToolPreviewKind, NonInteractive, PlacementPreview,
+    NonInteractive, PlacementPreview, ToolActivationKind, ToolContext, ToolDescriptor,
+    ToolInputGate, ToolMode, ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
 };
 
 pub struct BuildToolPlugin;
@@ -43,16 +43,36 @@ pub struct SelectBuildObjectRequested {
 }
 
 fn apply_select_build_object_requests(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    pointer: Res<PointerContext>,
+    current_mode: Res<State<ToolMode>>,
     mut requests: MessageReader<SelectBuildObjectRequested>,
     mut prototypes: ResMut<BuildPrototypes>,
     mut activation: MessageWriter<ActivateToolRequested>,
+    mut session: ResMut<ToolSessionState>,
 ) {
     for request in requests.read() {
         prototypes.active = request.prototype;
-        activation.write(ActivateToolRequested {
-            mode: ToolMode::Build,
-            kind: ToolActivationKind::Replace,
-        });
+        if *current_mode.get() == ToolMode::Build {
+            crate::tools::cleanup_current_session(
+                &mut commands,
+                &mut session,
+                crate::tools::ToolSessionEndReason::Replaced,
+            );
+            spawn_build_session(
+                &mut commands,
+                &asset_server,
+                &prototypes,
+                &pointer,
+                &mut session,
+            );
+        } else {
+            activation.write(ActivateToolRequested {
+                mode: ToolMode::Build,
+                kind: ToolActivationKind::Replace,
+            });
+        }
     }
 }
 
@@ -63,13 +83,25 @@ fn start_build_session(
     pointer: Res<PointerContext>,
     mut session: ResMut<ToolSessionState>,
 ) {
-    let preview_entity = spawn_ghost_from_prototype(
+    spawn_build_session(
         &mut commands,
         &asset_server,
-        prototypes.active,
-        pointer.world_pos,
+        &prototypes,
+        &pointer,
+        &mut session,
     );
-    
+}
+
+fn spawn_build_session(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    prototypes: &BuildPrototypes,
+    pointer: &PointerContext,
+    session: &mut ToolSessionState,
+) {
+    let preview_entity =
+        spawn_ghost_from_prototype(commands, asset_server, prototypes.active, pointer.world_pos);
+
     // Convert old ghost to new preview system
     commands.entity(preview_entity).insert((
         ToolPreview,
@@ -78,6 +110,10 @@ fn start_build_session(
         },
         PlacementPreview { validation: None },
         NonInteractive,
+        InteractionRole::ToolPreview,
+        RuntimeOwned {
+            owner: RuntimeOwner::ToolPreview,
+        },
     ));
 
     session.active = Some(ActiveToolSession::Build(BuildToolSession {
@@ -88,10 +124,7 @@ fn start_build_session(
     }));
 }
 
-fn cleanup_build_session(
-    mut commands: Commands,
-    mut session: ResMut<ToolSessionState>,
-) {
+fn cleanup_build_session(mut commands: Commands, mut session: ResMut<ToolSessionState>) {
     crate::tools::cleanup_current_session(
         &mut commands,
         &mut session,
@@ -102,6 +135,7 @@ fn cleanup_build_session(
 pub fn build_tool_system(
     mut commands: Commands,
     pointer: Res<PointerContext>,
+    targets: Res<PointerTargets>,
     gate: Res<ToolInputGate>,
     actions: Res<InputActionState>,
     mut next_mode: ResMut<NextState<ToolMode>>,
@@ -110,7 +144,7 @@ pub fn build_tool_system(
     mut ghost_positions: Query<&mut WorldPos>,
     mut builds: MessageWriter<BuildObjectRequested>,
 ) {
-    tool.sync_from_pointer(&pointer);
+    tool.sync_from_pointer(&pointer, &targets);
 
     if !gate.can_use_world() {
         return;
@@ -128,7 +162,9 @@ pub fn build_tool_system(
 
     if let Some(ActiveToolSession::Build(build_session)) = session.active.as_mut() {
         // Reset freshness once button is fully released (and not in the release frame itself)
-        if !actions.pressed(InputAction::PrimaryClick) && !actions.just_released(InputAction::PrimaryClick) {
+        if !actions.pressed(InputAction::PrimaryClick)
+            && !actions.just_released(InputAction::PrimaryClick)
+        {
             build_session.awaiting_fresh_click = false;
         }
 

@@ -26,7 +26,7 @@ pub struct PrimaryPointerCycle {
 pub struct ToolInputGate {
     pub world_blocked: bool,
     pub pointer_available: bool,
-    
+
     pub primary_world_press_started: bool,
     pub primary_world_click_released: bool,
 
@@ -52,10 +52,10 @@ pub fn update_tool_input_gate(
     mut gate: ResMut<ToolInputGate>,
 ) {
     gate.pointer_available = pointer.has_pointer;
-    
+
     let is_modal_blocking = modal.stack.last().is_some_and(|m| m.blocks_world);
     let is_ui_blocking = pointer.over_ui;
-    
+
     gate.blocked_by_modal = is_modal_blocking;
     gate.blocked_by_ui = is_ui_blocking;
     gate.world_blocked = is_modal_blocking || is_ui_blocking || !pointer.has_pointer;
@@ -65,7 +65,7 @@ pub fn update_tool_input_gate(
         cycle.started_this_frame = true;
         cycle.consumed = false;
         cycle.drag_started = false;
-        
+
         // Only set if not already overridden by a system earlier in the frame (like a widget)
         if cycle.owner == PointerPressOwner::None {
             if is_modal_blocking {
@@ -90,8 +90,9 @@ pub fn update_tool_input_gate(
     }
 
     // Derive Signals
-    gate.primary_world_press_started = cycle.started_this_frame && cycle.owner == PointerPressOwner::World;
-    
+    gate.primary_world_press_started =
+        cycle.started_this_frame && cycle.owner == PointerPressOwner::World;
+
     gate.primary_world_click_released = actions.just_released(InputAction::PrimaryClick)
         && cycle.owner == PointerPressOwner::World
         && !cycle.consumed

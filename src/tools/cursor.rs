@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, PointerContext};
+use crate::input::{InputAction, PointerContext, PointerTargets};
 use crate::objects::components::Interactive;
 use crate::tools::{
-    ObjectAction, ObjectActionRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
-    ToolRegistry, ToolSet,
+    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, SelectionState, ToolContext,
+    ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry, ToolSet,
 };
 
 pub struct CursorToolPlugin;
@@ -31,12 +31,14 @@ impl Plugin for CursorToolPlugin {
 
 pub fn cursor_tool_system(
     pointer: Res<PointerContext>,
+    targets: Res<PointerTargets>,
     gate: Res<ToolInputGate>,
     interactive: Query<(), With<Interactive>>,
+    selection: Res<SelectionState>,
     mut tool: ResMut<ToolContext>,
     mut actions: MessageWriter<ObjectActionRequested>,
 ) {
-    tool.sync_from_pointer(&pointer);
+    tool.sync_from_pointer(&pointer, &targets);
     tool.active = None;
 
     if !gate.can_use_world() {
@@ -45,12 +47,20 @@ pub fn cursor_tool_system(
 
     if gate.primary_world_click_released {
         if let Some(entity) = tool
-            .hovered
+            .hovered_object
             .filter(|entity| interactive.get(*entity).is_ok())
         {
             actions.write(ObjectActionRequested {
                 entity,
-                action: ObjectAction::Select,
+                action: ObjectActionKind::Inspect,
+                origin: ObjectActionOrigin::CursorClick,
+            });
+        } else if let Some(primary) = selection.primary {
+            // Click on empty world clears selection
+            actions.write(ObjectActionRequested {
+                entity: primary,
+                action: ObjectActionKind::Deselect,
+                origin: ObjectActionOrigin::CursorClick,
             });
         }
     }

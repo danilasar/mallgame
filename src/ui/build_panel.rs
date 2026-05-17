@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::objects::prototypes::BuildPrototypeId;
+use crate::tools::SelectBuildObjectRequested;
 use crate::tools::{ActivateToolRequested, ToolActivationKind, ToolMode};
 use crate::ui::{
     BlocksWorldInput, UiRoot, UiSet,
@@ -51,11 +52,37 @@ impl Plugin for BottomBuildPanelPlugin {
                     build_panel_mode_buttons,
                     build_panel_close_button,
                     build_object_install_buttons,
+                    sync_build_panel_mode_system,
                     render_bottom_build_panel,
                 )
                     .chain()
                     .in_set(UiSet::Requests),
             );
+    }
+}
+
+fn sync_build_panel_mode_system(
+    tool_mode: Res<State<ToolMode>>,
+    mut panel_mode: ResMut<BuildPanelMode>,
+) {
+    if tool_mode.is_changed() {
+        match *tool_mode.get() {
+            ToolMode::Build => {
+                if *panel_mode == BuildPanelMode::Closed {
+                    *panel_mode = BuildPanelMode::Objects;
+                }
+            }
+            ToolMode::Expansion => {
+                if *panel_mode == BuildPanelMode::Closed {
+                    *panel_mode = BuildPanelMode::Expansion;
+                }
+            }
+            ToolMode::Cursor => {
+                // If we are in Cursor but the panel is open, we might want to keep it open,
+                // but if the panel is Objects/Expansion, and tool is Cursor, it's fine.
+            }
+            _ => {}
+        }
     }
 }
 
@@ -136,15 +163,12 @@ fn build_panel_close_button(
 
 fn build_object_install_buttons(
     mut query: Query<(&Interaction, &BuildObjectInstallButton), Changed<Interaction>>,
-    mut activation: MessageWriter<ActivateToolRequested>,
-    mut prototypes: ResMut<crate::objects::prototypes::BuildPrototypes>,
+    mut selection: MessageWriter<SelectBuildObjectRequested>,
 ) {
     for (interaction, button) in &mut query {
         if *interaction == Interaction::Pressed {
-            prototypes.active = button.prototype;
-            activation.write(ActivateToolRequested {
-                mode: ToolMode::Build,
-                kind: ToolActivationKind::Replace,
+            selection.write(SelectBuildObjectRequested {
+                prototype: button.prototype,
             });
         }
     }

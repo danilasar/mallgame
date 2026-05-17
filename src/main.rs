@@ -21,6 +21,7 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.10, 0.12, 0.14)))
         .insert_resource(IsoProjection::default())
         .init_resource::<PointerContext>()
+        .init_resource::<PointerTargets>()
         .init_resource::<PointerDragState>()
         .init_resource::<BuildPrototypes>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -69,16 +70,41 @@ fn main() {
                 .chain(),
         )
         .add_systems(Startup, setup)
-        .add_systems(PreUpdate, update_pointer_context)
+        .add_systems(
+            PreUpdate,
+            (
+                update_pointer_context,
+                update_pointer_over_ui,
+                update_hovered_object.after(update_pointer_over_ui),
+                camera_drag_system.after(update_hovered_object),
+                update_tool_input_gate.after(camera_drag_system),
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
-                update_hovered_object.after(update_pointer_over_ui),
-                camera_drag_system
-                    .after(update_hovered_object)
-                    .after(update_pointer_over_ui),
+                handle_object_action_requests,
+                handle_activate_tool_requested,
+                handle_return_to_previous_tool_requested,
             )
-                .chain(),
+                .chain()
+                .in_set(ToolSet::ToolUpdate),
+        )
+        .add_systems(
+            Update,
+            unified_tool_validation_system.in_set(ToolSet::Validation),
+        )
+        .add_systems(
+            Update,
+            (
+                apply_committed_events,
+                crate::store::apply_purchase_store_chunk_requested,
+                log_tool_changed_requests,
+                print_positions_system,
+            )
+                .chain()
+                .in_set(ToolSet::Commit),
         )
         .add_systems(
             PostUpdate,
@@ -86,6 +112,7 @@ fn main() {
                 update_highlight_intents,
                 sync_visual_transform.before(TransformSystems::Propagate),
                 update_highlight_visuals.after(sync_visual_transform),
+                update_contextual_world_widgets.after(sync_visual_transform),
             )
                 .chain(),
         )

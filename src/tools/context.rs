@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{PointerContext, PointerTargets};
 use crate::objects::prototypes::BuildPrototypeId;
 
 #[derive(Resource, Debug, Default)]
 pub struct ToolContext {
-    pub hovered: Option<Entity>,
+    pub hovered_object: Option<Entity>,
+    pub hovered_widget: Option<Entity>,
     pub active: Option<ActiveToolAction>,
     pub pointer_world: Vec2,
     pub pointer_projected: Vec2,
@@ -13,8 +14,9 @@ pub struct ToolContext {
 }
 
 impl ToolContext {
-    pub fn sync_from_pointer(&mut self, pointer: &PointerContext) {
-        self.hovered = pointer.hovered_entity;
+    pub fn sync_from_pointer(&mut self, pointer: &PointerContext, targets: &PointerTargets) {
+        self.hovered_object = targets.world_object;
+        self.hovered_widget = targets.world_widget;
         self.pointer_world = pointer.world_pos;
         self.pointer_projected = pointer.projected_pos;
         self.is_over_ui = pointer.over_ui;
@@ -22,6 +24,7 @@ impl ToolContext {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum ActiveToolAction {
     Moving {
         entity: Entity,

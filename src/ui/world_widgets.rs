@@ -1,10 +1,15 @@
 use bevy::prelude::*;
 
-use crate::objects::components::{Footprint, WorldPos};
-use crate::objects::rotation::{Rotatable, RotateObjectRequested};
+use crate::objects::components::{
+    Footprint, InteractionRole, RuntimeOwned, RuntimeOwner, WorldPos,
+};
+use crate::objects::rotation::Rotatable;
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
-use crate::tools::{StartMoveObjectRequested, ToolContext, ToolMode, PointerPressOwner, PrimaryPointerCycle};
+use crate::tools::{
+    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, PointerPressOwner,
+    PrimaryPointerCycle, SelectionState, ToolMode,
+};
 use crate::ui::{
     BlocksWorldInput, UiSet, WorldWidgetsLayer,
     buttons::{UiFonts, label_text},
@@ -32,8 +37,7 @@ impl Plugin for WorldWidgetUiPlugin {
 
 fn rotate_widget_button_system(
     mut query: Query<(&Interaction, &RotateWorldWidget), Changed<Interaction>>,
-    mut rotates: MessageWriter<RotateObjectRequested>,
-    mut starts: MessageWriter<StartMoveObjectRequested>,
+    mut actions: MessageWriter<ObjectActionRequested>,
     mut cycle: ResMut<PrimaryPointerCycle>,
 ) {
     for (interaction, widget) in &mut query {
@@ -44,22 +48,20 @@ fn rotate_widget_button_system(
         cycle.owner = PointerPressOwner::WorldWidget;
         cycle.consumed = true;
 
-        rotates.write(RotateObjectRequested {
+        actions.write(ObjectActionRequested {
             entity: widget.target,
-            steps: 1,
-        });
-        starts.write(StartMoveObjectRequested {
-            entity: widget.target,
+            action: ObjectActionKind::Rotate,
+            origin: ObjectActionOrigin::WorldWidget,
         });
         info!("Rotate widget clicked for entity={:?}", widget.target);
     }
 }
 
-fn update_contextual_world_widgets(
+pub fn update_contextual_world_widgets(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
     session: Res<crate::tools::ToolSessionState>,
-    tool: Res<ToolContext>,
+    selection: Res<SelectionState>,
     projection: Res<IsoProjection>,
     mut widgets: Query<(Entity, &mut RotateWorldWidget, &mut Node, &Interaction)>,
     fonts: Res<UiFonts>,
@@ -67,28 +69,12 @@ fn update_contextual_world_widgets(
     objects: Query<(&WorldPos, &Footprint, Option<&Rotatable>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
-    if *mode.get() != ToolMode::Move {
-        for (entity, _, _, _) in &mut widgets {
-            commands.entity(entity).despawn();
-        }
-        return;
+    // Widgets are only shown when a single object is selected and no tool session is active
+    let target = if session.active.is_none() && (*mode.get() == ToolMode::Cursor || *mode.get() == ToolMode::Move) {
+        selection.primary
+    } else {
+        None
     };
-
-    if session.active.is_some() {
-        for (entity, _, _, _) in &mut widgets {
-            commands.entity(entity).despawn();
-        }
-        return;
-    }
-
-    let widget_hover_target = widgets
-        .iter()
-        .next()
-        .and_then(|(_, widget, _, interaction)| {
-            matches!(*interaction, Interaction::Hovered | Interaction::Pressed)
-                .then_some(widget.target)
-        });
-    let target = tool.hovered.or(widget_hover_target);
 
     let Some(target) = target else {
         for (entity, _, _, _) in &mut widgets {
@@ -96,12 +82,21 @@ fn update_contextual_world_widgets(
         }
         return;
     };
-    let Ok((world_pos, footprint, Some(_))) = objects.get(target) else {
+
+    let Ok((world_pos, footprint, rotatable)) = objects.get(target) else {
         for (entity, _, _, _) in &mut widgets {
             commands.entity(entity).despawn();
         }
         return;
     };
+
+    if rotatable.is_none() {
+        for (entity, _, _, _) in &mut widgets {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
     let Some(layer) = layer.iter().next() else {
         return;
     };
@@ -144,6 +139,10 @@ fn update_contextual_world_widgets(
                 BackgroundColor(Color::srgb(0.30, 0.18, 0.08)),
                 BlocksWorldInput,
                 RotateWorldWidget { target },
+                InteractionRole::WorldWidget,
+                RuntimeOwned {
+                    owner: RuntimeOwner::WorldWidget,
+                },
                 Name::new("RotateWorldWidget"),
             ))
             .with_child(label_text("↻", &fonts))

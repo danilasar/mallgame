@@ -1,10 +1,14 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, InputActionState, PointerContext};
-use crate::objects::components::{Movable, Selected, StoreObject, WorldPos, FootAnchor, Footprint, VisualOffset, SortLayer, SortBias, ProjectedPos};
+use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
+use crate::objects::components::{
+    InteractionRole, Movable, ProjectedPos, RuntimeOwned, RuntimeOwner, SortBias, SortLayer,
+    StoreObject, VisualOffset, WorldPos, FootAnchor, Footprint,
+};
 use crate::tools::{
-    ActiveToolSession, MoveObjectCommitted, StartMoveObjectRequested, ToolContext, ToolDescriptor,
-    ToolInputGate, ToolMode, ToolRegistry, ToolSet, ToolSessionState, MoveToolSession, ToolPreview, ToolPreviewKind, NonInteractive, PreviewSource, PlacementPreview,
+    ActiveToolSession, MoveObjectCommitted, NonInteractive, PlacementPreview, PreviewSource,
+    StartMoveObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry,
+    ToolSet, ToolSessionState, MoveToolSession, ToolPreview, ToolPreviewKind,
 };
 
 pub struct MoveToolPlugin;
@@ -38,18 +42,12 @@ pub fn apply_start_move_object_requests(
     mut commands: Commands,
     mut requests: MessageReader<StartMoveObjectRequested>,
     movable: Query<(&WorldPos, &FootAnchor, &Footprint, &VisualOffset, &Sprite, &SortBias, Option<&crate::objects::rotation::Rotatable>), (With<Movable>, With<StoreObject>)>,
-    selected: Query<Entity, With<Selected>>,
     mut session: ResMut<ToolSessionState>,
 ) {
     for request in requests.read() {
         if let Ok((world_pos, foot_anchor, footprint, visual_offset, sprite, sort_bias, rotatable)) = movable.get(request.entity) {
             // Cleanup existing session if any
             crate::tools::cleanup_current_session(&mut commands, &mut session, crate::tools::ToolSessionEndReason::Replaced);
-
-            for selected_entity in &selected {
-                commands.entity(selected_entity).remove::<Selected>();
-            }
-            commands.entity(request.entity).insert(Selected);
 
             let rotation_index = rotatable.map_or(0, |r| r.current);
 
@@ -72,6 +70,10 @@ pub fn apply_start_move_object_requests(
                 ToolPreviewKind::Move { source_entity: request.entity },
                 PlacementPreview { validation: None },
                 NonInteractive,
+                InteractionRole::ToolPreview,
+                RuntimeOwned {
+                    owner: RuntimeOwner::ToolPreview,
+                },
                 Name::new(format!("MovePreview of {:?}", request.entity)),
             )).id();
 
@@ -91,6 +93,7 @@ pub fn apply_start_move_object_requests(
 pub fn move_tool_system(
     mut commands: Commands,
     pointer: Res<PointerContext>,
+    targets: Res<PointerTargets>,
     gate: Res<ToolInputGate>,
     actions: Res<InputActionState>,
     movable: Query<Entity, (With<Movable>, With<StoreObject>)>,
@@ -100,7 +103,7 @@ pub fn move_tool_system(
     mut requests: MessageWriter<StartMoveObjectRequested>,
     mut tool: ResMut<ToolContext>,
 ) {
-    tool.sync_from_pointer(&pointer);
+    tool.sync_from_pointer(&pointer, &targets);
     if !gate.can_use_world() {
         return;
     }
@@ -152,7 +155,7 @@ pub fn move_tool_system(
 
     // Start move via click
     if gate.primary_world_press_started {
-        if let Some(entity) = tool.hovered.filter(|entity| movable.get(*entity).is_ok()) {
+        if let Some(entity) = tool.hovered_object.filter(|entity| movable.get(*entity).is_ok()) {
             requests.write(StartMoveObjectRequested { entity });
         }
     }

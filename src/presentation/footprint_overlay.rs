@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 
-use crate::objects::components::{Footprint, Movable, SortLayer, WorldPos};
+use crate::objects::components::{
+    Footprint, InteractionRole, Movable, RuntimeOwned, RuntimeOwner, SortLayer, WorldPos,
+};
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
 use crate::presentation::world_to_iso;
-use crate::tools::ToolMode;
+use crate::tools::{NonInteractive, ToolMode};
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct FootprintOutlineOverlay {
@@ -43,12 +45,12 @@ pub fn update_footprint_outline_overlay(
         With<FootprintOutlineSegment>,
     >,
 ) {
-    // 1. If there's an active session with a preview, it always gets the focus outline
+    // Abstracted target selection: Active Preview has priority over Hovered object
     let preview_target = session.active.as_ref().and_then(|s| s.preview_entity());
 
     // 2. If no active session, show outline on hover ONLY in Move mode (to indicate pickability)
     let hover_target = if preview_target.is_none() && *mode.get() == ToolMode::Move {
-        tool.hovered
+        tool.hovered_object
     } else {
         None
     };
@@ -74,10 +76,6 @@ pub fn update_footprint_outline_overlay(
     }
 
     let mut segment_count = 0usize;
-    // We cannot easily collect Query results into a Vec for reuse due to mutable borrowing.
-    // We'll use iter_mut() and nth() sparingly or just iterate once.
-    
-    // Convert to a reusable list of entities we already have
     let existing_segments: Vec<_> = overlays.iter().map(|(e, _, _, _, _)| e).collect();
 
     for (a, b) in points
@@ -97,10 +95,13 @@ pub fn update_footprint_outline_overlay(
 
         if segment_count < existing_segments.len() {
             let entity = existing_segments[segment_count];
-            if let Ok((_, mut overlay, mut sprite, mut transform, mut visibility)) = overlays.get_mut(entity) {
+            if let Ok((_, mut overlay, mut sprite, mut transform, mut visibility)) =
+                overlays.get_mut(entity)
+            {
                 overlay.target = target;
                 *sprite = Sprite::from_color(Color::srgb(1.0, 0.86, 0.18), Vec2::new(length, 6.0));
-                transform.translation = Vec3::new(mid.x, mid.y, SortLayer::SelectionOverlay.base_z());
+                transform.translation =
+                    Vec3::new(mid.x, mid.y, SortLayer::SelectionOverlay.base_z());
                 transform.rotation = Quat::from_rotation_z(delta.y.atan2(delta.x));
                 *visibility = Visibility::Visible;
             }
@@ -115,6 +116,11 @@ pub fn update_footprint_outline_overlay(
                 Visibility::Visible,
                 FootprintOutlineOverlay { target },
                 FootprintOutlineSegment,
+                InteractionRole::Overlay,
+                RuntimeOwned {
+                    owner: RuntimeOwner::FootprintOverlay,
+                },
+                NonInteractive,
                 Name::new(format!("FootprintOutlineOverlay {:?}", target)),
             ));
         }

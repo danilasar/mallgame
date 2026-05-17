@@ -74,24 +74,32 @@ pub fn spawn_object_from_prototype(
 
     let entity = commands
         .spawn((
-            Sprite {
-                image: image.clone(),
-                custom_size: Some(spec.sprite_size),
-                ..default()
-            },
-            WorldPos(world_pos),
-            ProjectedPos::default(),
-            FootAnchor(spec.foot_anchor),
-            VisualOffset(Vec2::ZERO),
-            SortLayer::Objects,
-            SortBias(spec.sort_bias),
-            Footprint::rectangle(spec.footprint_half_extents),
-            BlocksPlacement,
-            Interactive,
-            Movable,
-            Deletable,
-            StoreObject,
-            PlaceableAssetId(spec.asset_id),
+            (
+                Sprite {
+                    image: image.clone(),
+                    custom_size: Some(spec.sprite_size),
+                    ..default()
+                },
+                WorldPos(world_pos),
+                ProjectedPos::default(),
+                FootAnchor(spec.foot_anchor),
+                VisualOffset(Vec2::ZERO),
+                SortLayer::Objects,
+                SortBias(spec.sort_bias),
+                Footprint::rectangle(spec.footprint_half_extents),
+            ),
+            (
+                BlocksPlacement,
+                Interactive,
+                Selectable,
+                Inspectable,
+                Movable,
+                Deletable,
+                StoreObject,
+                InteractionRole::WorldObject,
+                PlaceableAssetId(spec.asset_id),
+                Name::new(spec.asset_id),
+            ),
         ))
         .id();
 
