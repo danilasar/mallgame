@@ -2,6 +2,17 @@ use bevy::prelude::*;
 
 use crate::ui::BlocksWorldInput;
 
+#[derive(Resource, Debug, Clone)]
+pub struct UiFonts {
+    pub regular: Handle<Font>,
+}
+
+pub fn load_ui_fonts(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(UiFonts {
+        regular: asset_server.load("fonts/IosevkaNerdFont-Regular.ttf"),
+    });
+}
+
 pub fn ui_button(label: &'static str, width: f32, height: f32) -> impl Bundle {
     (
         Button,
@@ -19,13 +30,26 @@ pub fn ui_button(label: &'static str, width: f32, height: f32) -> impl Bundle {
     )
 }
 
-pub fn label_text(label: &'static str) -> impl Bundle {
+pub fn label_text(label: &'static str, fonts: &UiFonts) -> impl Bundle {
     (
         Text::new(label),
         TextFont {
+            font: fonts.regular.clone(),
             font_size: 13.0,
             ..default()
         },
         TextColor(Color::srgb(0.95, 0.84, 0.45)),
+    )
+}
+
+pub fn ui_text(label: &'static str, font_size: f32, color: Color, fonts: &UiFonts) -> impl Bundle {
+    (
+        Text::new(label),
+        TextFont {
+            font: fonts.regular.clone(),
+            font_size,
+            ..default()
+        },
+        TextColor(color),
     )
 }

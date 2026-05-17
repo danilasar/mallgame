@@ -4,7 +4,7 @@ use crate::input::{InputAction, InputActionState};
 use crate::tools::{DeleteObjectRequested, ToolContext};
 use crate::ui::{
     BlocksWorldInput, ModalLayer, UiSet,
-    buttons::{label_text, ui_button},
+    buttons::{UiFonts, label_text, ui_button, ui_text},
 };
 
 #[derive(Resource, Debug, Default)]
@@ -135,6 +135,7 @@ pub fn apply_modal_requests(
 fn render_modal_stack(
     mut commands: Commands,
     stack: Res<ModalStack>,
+    fonts: Res<UiFonts>,
     layer: Query<Entity, With<ModalLayer>>,
     visuals: Query<Entity, With<ModalVisual>>,
 ) {
@@ -194,14 +195,12 @@ fn render_modal_stack(
         ))
         .with_children(|parent| match instance.kind {
             ModalKind::ConfirmDelete { .. } => {
-                parent.spawn((
-                    Text::new("Удалить объект?"),
-                    TextFont {
-                        font_size: 20.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.98, 0.92, 0.78)),
-                ));
+                parent.spawn((ui_text(
+                    "Удалить объект?",
+                    20.0,
+                    Color::srgb(0.98, 0.92, 0.78),
+                    &fonts,
+                ),));
                 parent
                     .spawn(Node {
                         flex_direction: FlexDirection::Row,
@@ -210,9 +209,9 @@ fn render_modal_stack(
                     })
                     .with_children(|row| {
                         row.spawn((ui_button("Удалить", 110.0, 38.0), ModalButton::Confirm))
-                            .with_child(label_text("Удалить"));
+                            .with_child(label_text("Удалить", &fonts));
                         row.spawn((ui_button("Отмена", 110.0, 38.0), ModalButton::Cancel))
-                            .with_child(label_text("Отмена"));
+                            .with_child(label_text("Отмена", &fonts));
                     });
             }
         })

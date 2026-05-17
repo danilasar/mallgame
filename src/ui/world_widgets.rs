@@ -5,7 +5,10 @@ use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
 use crate::tools::{ActiveToolAction, StartMoveObjectRequested, ToolContext, ToolMode};
-use crate::ui::{BlocksWorldInput, UiSet, WorldWidgetsLayer, buttons::label_text};
+use crate::ui::{
+    BlocksWorldInput, UiSet, WorldWidgetsLayer,
+    buttons::{UiFonts, label_text},
+};
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RotateWorldWidget {
@@ -53,6 +56,7 @@ fn update_contextual_world_widgets(
     tool: Res<ToolContext>,
     projection: Res<IsoProjection>,
     mut widgets: Query<(Entity, &mut RotateWorldWidget, &mut Node, &Interaction)>,
+    fonts: Res<UiFonts>,
     layer: Query<Entity, With<WorldWidgetsLayer>>,
     objects: Query<(&WorldPos, &Footprint, Option<&Rotatable>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
@@ -136,7 +140,7 @@ fn update_contextual_world_widgets(
                 RotateWorldWidget { target },
                 Name::new("RotateWorldWidget"),
             ))
-            .with_child(label_text("↻"))
+            .with_child(label_text("↻", &fonts))
             .id();
         commands.entity(layer).add_child(button);
     }

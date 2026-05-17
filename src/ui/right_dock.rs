@@ -4,7 +4,7 @@ use crate::tools::{ToolChangedRequested, ToolMode};
 use crate::ui::{
     ActiveInterfacePanel, BlocksWorldInput, InterfacePanelId, RightDockLayer, UiSet, UiWindowStack,
     WindowLayer,
-    buttons::{label_text, ui_button},
+    buttons::{UiFonts, label_text, ui_button},
 };
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -38,7 +38,11 @@ impl Plugin for RightDockUiPlugin {
     }
 }
 
-fn setup_right_dock(mut commands: Commands, layer: Query<Entity, With<RightDockLayer>>) {
+fn setup_right_dock(
+    mut commands: Commands,
+    fonts: Res<UiFonts>,
+    layer: Query<Entity, With<RightDockLayer>>,
+) {
     let Some(layer) = layer.iter().next() else {
         return;
     };
@@ -75,7 +79,7 @@ fn setup_right_dock(mut commands: Commands, layer: Query<Entity, With<RightDockL
                 ui_button(label, 82.0, 38.0),
                 InterfaceSwitcherButton { target },
             ))
-            .with_child(label_text(label))
+            .with_child(label_text(label, &fonts))
             .id();
         commands.entity(dock).add_child(button);
     }
@@ -121,6 +125,7 @@ fn right_dock_button_system(
 fn render_active_interface_panel(
     mut commands: Commands,
     active: Res<ActiveInterfacePanel>,
+    fonts: Res<UiFonts>,
     layer: Query<Entity, With<WindowLayer>>,
     existing: Query<Entity, With<InterfacePanelContent>>,
 ) {
@@ -171,30 +176,36 @@ fn render_active_interface_panel(
             ] {
                 let button = commands
                     .spawn((ui_button(label, 118.0, 34.0), ToolModeUiButton { mode }))
-                    .with_child(label_text(label))
+                    .with_child(label_text(label, &fonts))
                     .id();
                 commands.entity(content).add_child(button);
             }
         }
         InterfacePanelId::BuildCatalog => {
             commands.entity(content).with_children(|parent| {
-                parent.spawn(label_text("Build catalog"));
-                parent.spawn(label_text("Prototype: Chair"));
+                parent.spawn(label_text("Build catalog", &fonts));
+                parent.spawn(label_text("Prototype: Chair", &fonts));
             });
         }
         InterfacePanelId::Inventory => {
-            commands.entity(content).with_child(label_text("Inventory"));
+            commands
+                .entity(content)
+                .with_child(label_text("Inventory", &fonts));
         }
         InterfacePanelId::Debug => {
-            commands.entity(content).with_child(label_text("Debug"));
+            commands
+                .entity(content)
+                .with_child(label_text("Debug", &fonts));
         }
         InterfacePanelId::ObjectInspector => {
             commands
                 .entity(content)
-                .with_child(label_text("Object inspector"));
+                .with_child(label_text("Object inspector", &fonts));
         }
         InterfacePanelId::Settings => {
-            commands.entity(content).with_child(label_text("Settings"));
+            commands
+                .entity(content)
+                .with_child(label_text("Settings", &fonts));
         }
     }
 }

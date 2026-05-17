@@ -75,7 +75,8 @@ impl Plugin for UiCorePlugin {
                 )
                     .chain(),
             )
-            .add_systems(Startup, setup_ui_root)
+            .add_systems(Startup, crate::ui::load_ui_fonts)
+            .add_systems(Startup, setup_ui_root.after(crate::ui::load_ui_fonts))
             .add_systems(
                 Update,
                 update_pointer_over_ui.in_set(UiSet::UpdateInteraction),

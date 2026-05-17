@@ -6,7 +6,7 @@ use crate::input::{InputAction, InputActionState};
 use crate::ui::ModalStack;
 use crate::ui::{
     RightDockLayer, UiRuntime, UiSet,
-    buttons::{label_text, ui_button},
+    buttons::{UiFonts, label_text, ui_button},
 };
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -46,7 +46,11 @@ impl Plugin for CameraControlsUiPlugin {
     }
 }
 
-fn setup_camera_controls(mut commands: Commands, layer: Query<Entity, With<RightDockLayer>>) {
+fn setup_camera_controls(
+    mut commands: Commands,
+    fonts: Res<UiFonts>,
+    layer: Query<Entity, With<RightDockLayer>>,
+) {
     let Some(layer) = layer.iter().next() else {
         return;
     };
@@ -77,7 +81,7 @@ fn setup_camera_controls(mut commands: Commands, layer: Query<Entity, With<Right
     ] {
         let button = commands
             .spawn((ui_button(label, 38.0, 34.0), control))
-            .with_child(label_text(label))
+            .with_child(label_text(label, &fonts))
             .id();
         commands.entity(panel).add_child(button);
     }
