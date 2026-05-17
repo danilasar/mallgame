@@ -111,7 +111,7 @@ fn available_expansion_chunks(world: &WorldBounds, store: &StoreArea) -> Vec<Sto
     let mut valid: Vec<_> = candidates
         .into_iter()
         .filter(|coord| {
-            validate_chunk_purchase(world, store, *coord, StoreChunkKind::Default).is_ok()
+            validate_chunk_purchase(world, store, *coord, StoreChunkKind::Default).valid
         })
         .collect();
     valid.sort_by_key(|coord| (coord.y, coord.x));

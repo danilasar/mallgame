@@ -83,7 +83,9 @@ impl StoreArea {
     }
 
     pub fn contains_polygon(&self, polygon: &[Vec2]) -> bool {
-        // MVP: vertex-only check. Later replace with polygon-vs-owned-union coverage.
+        // MVP: vertex-only check.
+        // TODO: Strengthen this to check edge intersections or use polygon-vs-union-of-chunks coverage.
+        // A large footprint could cross an unowned area even if all vertices are inside owned chunks.
         polygon.iter().all(|point| self.contains_point(*point))
     }
 
@@ -101,7 +103,10 @@ impl Plugin for StorePlugin {
             .add_systems(Startup, setup_store_area)
             .add_systems(
                 Update,
-                clamp_camera_to_world_bounds.after(crate::input::camera_drag_system),
+                (
+                    crate::store::apply_purchase_store_chunk_requested,
+                    clamp_camera_to_world_bounds.after(crate::input::camera_drag_system),
+                ),
             );
     }
 }
@@ -157,19 +162,60 @@ mod tests {
     }
 
     #[test]
-    fn just_left_down_of_anchor_is_negative_one_negative_one() {
+    fn world_to_chunk_coord_boundaries() {
         let store = StoreArea::new(Vec2::ZERO);
+        let size = store.chunk_world_size();
+
+        // Exactly at anchor
         assert_eq!(
-            store.world_to_chunk_coord(Vec2::new(-1.0, -1.0)),
+            store.world_to_chunk_coord(Vec2::ZERO),
+            StoreChunkCoord { x: 0, y: 0 }
+        );
+
+        // Slightly left/down from anchor
+        assert_eq!(
+            store.world_to_chunk_coord(Vec2::new(-0.001, -0.001)),
             StoreChunkCoord { x: -1, y: -1 }
+        );
+
+        // Exactly at chunk boundary (positive)
+        assert_eq!(
+            store.world_to_chunk_coord(size),
+            StoreChunkCoord { x: 1, y: 1 }
+        );
+
+        // Slightly inside chunk boundary (positive)
+        assert_eq!(
+            store.world_to_chunk_coord(size - Vec2::splat(0.001)),
+            StoreChunkCoord { x: 0, y: 0 }
+        );
+
+        // Exactly at chunk boundary (negative)
+        assert_eq!(
+            store.world_to_chunk_coord(-size),
+            StoreChunkCoord { x: -1, y: -1 }
+        );
+
+        // Slightly outside chunk boundary (more negative)
+        assert_eq!(
+            store.world_to_chunk_coord(-size - Vec2::splat(0.001)),
+            StoreChunkCoord { x: -2, y: -2 }
         );
     }
 
     #[test]
-    fn contains_owned_and_rejects_unowned() {
+    fn contains_point_respects_half_open_interval() {
         let store = StoreArea::new(Vec2::ZERO);
-        assert!(store.contains_point(Vec2::new(-1.0, -1.0)));
-        assert!(!store.contains_point(Vec2::new(1.0, -1.0)));
+        let size = store.chunk_world_size();
+
+        // Initial store has x: -5..0, y: -4..0
+        // Chunk (-1, -1) is [ -size.x, 0 ) x [ -size.y, 0 )
+
+        assert!(store.contains_point(Vec2::new(-0.001, -0.001)));
+        assert!(!store.contains_point(Vec2::ZERO)); // (0,0) is chunk (0,0), which is not owned
+
+        assert!(store.contains_point(-size)); // Exact min of (-1,-1)
+        assert!(!store.contains_point(Vec2::new(-5.0 * size.x - 0.001, -size.y))); // Just outside the whole store (left)
     }
 
     #[test]

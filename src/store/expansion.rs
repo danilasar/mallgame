@@ -16,6 +16,13 @@ pub enum StoreChunkPurchaseInvalidReason {
     CannotAfford,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChunkPurchaseValidation {
+    pub coord: StoreChunkCoord,
+    pub valid: bool,
+    pub reason: Option<StoreChunkPurchaseInvalidReason>,
+}
+
 #[derive(Message, Debug, Clone, Copy)]
 pub struct PurchaseStoreChunkRequested {
     pub coord: StoreChunkCoord,
@@ -28,23 +35,21 @@ pub fn apply_purchase_store_chunk_requested(
     world: Res<WorldBounds>,
 ) {
     for event in events.read() {
-        match validate_chunk_purchase(&world, &store, event.coord, event.kind) {
-            Ok(()) => {
-                store
-                    .owned_chunks
-                    .insert(event.coord, StoreChunkData { kind: event.kind });
-                info!(
-                    "Purchased store chunk {:?}; owned_count={}",
-                    event.coord,
-                    store.owned_chunks.len()
-                );
-            }
-            Err(reason) => {
-                info!(
-                    "Rejected store chunk purchase {:?}: {:?}",
-                    event.coord, reason
-                );
-            }
+        let validation = validate_chunk_purchase(&world, &store, event.coord, event.kind);
+        if validation.valid {
+            store
+                .owned_chunks
+                .insert(event.coord, StoreChunkData { kind: event.kind });
+            info!(
+                "Purchased store chunk {:?}; owned_count={}",
+                event.coord,
+                store.owned_chunks.len()
+            );
+        } else {
+            info!(
+                "Rejected store chunk purchase {:?}: {:?}",
+                event.coord, validation.reason
+            );
         }
     }
 }
@@ -61,22 +66,25 @@ pub fn is_direction_allowed(store: &StoreArea, coord: StoreChunkCoord) -> bool {
     };
     let policy = store.expansion_policy;
 
-    (policy.allow_left
-        && coord.x == bounds.min.x - 1
-        && coord.y >= bounds.min.y
-        && coord.y <= bounds.max.y)
-        || (policy.allow_right
-            && coord.x == bounds.max.x + 1
-            && coord.y >= bounds.min.y
-            && coord.y <= bounds.max.y)
-        || (policy.allow_down
-            && coord.y == bounds.min.y - 1
-            && coord.x >= bounds.min.x
-            && coord.x <= bounds.max.x)
-        || (policy.allow_up
-            && coord.y == bounds.max.y + 1
-            && coord.x >= bounds.min.x
-            && coord.x <= bounds.max.x)
+    let expands_left = coord.x < bounds.min.x;
+    let expands_right = coord.x > bounds.max.x;
+    let expands_down = coord.y < bounds.min.y;
+    let expands_up = coord.y > bounds.max.y;
+
+    if expands_left && !policy.allow_left {
+        return false;
+    }
+    if expands_right && !policy.allow_right {
+        return false;
+    }
+    if expands_down && !policy.allow_down {
+        return false;
+    }
+    if expands_up && !policy.allow_up {
+        return false;
+    }
+
+    true
 }
 
 pub fn validate_chunk_purchase(
@@ -84,25 +92,41 @@ pub fn validate_chunk_purchase(
     store: &StoreArea,
     coord: StoreChunkCoord,
     _kind: StoreChunkKind,
-) -> Result<(), StoreChunkPurchaseInvalidReason> {
+) -> ChunkPurchaseValidation {
+    let mut validation = ChunkPurchaseValidation {
+        coord,
+        valid: true,
+        reason: None,
+    };
+
     if store.owned_chunks.contains_key(&coord) {
-        return Err(StoreChunkPurchaseInvalidReason::AlreadyOwned);
+        validation.valid = false;
+        validation.reason = Some(StoreChunkPurchaseInvalidReason::AlreadyOwned);
+        return validation;
     }
     if !rect_contains_rect(world.rect, store.chunk_rect(coord)) {
-        return Err(StoreChunkPurchaseInvalidReason::OutsideWorldBounds);
+        validation.valid = false;
+        validation.reason = Some(StoreChunkPurchaseInvalidReason::OutsideWorldBounds);
+        return validation;
     }
     if store.expansion_policy.require_side_adjacency && !is_side_adjacent_to_owned(store, coord) {
-        return Err(StoreChunkPurchaseInvalidReason::NotSideAdjacent);
+        validation.valid = false;
+        validation.reason = Some(StoreChunkPurchaseInvalidReason::NotSideAdjacent);
+        return validation;
     }
     if !is_direction_allowed(store, coord) {
-        return Err(StoreChunkPurchaseInvalidReason::DirectionNotAllowed);
+        validation.valid = false;
+        validation.reason = Some(StoreChunkPurchaseInvalidReason::DirectionNotAllowed);
+        return validation;
     }
     if store.expansion_policy.forbid_holes
         && crate::store::would_create_hole(&store.owned_chunks, coord)
     {
-        return Err(StoreChunkPurchaseInvalidReason::WouldCreateHole);
+        validation.valid = false;
+        validation.reason = Some(StoreChunkPurchaseInvalidReason::WouldCreateHole);
+        return validation;
     }
-    Ok(())
+    validation
 }
 
 fn rect_contains_rect(outer: Rect, inner: Rect) -> bool {
@@ -126,8 +150,9 @@ mod tests {
                 &store,
                 StoreChunkCoord { x: -1, y: -1 },
                 StoreChunkKind::Default
-            ),
-            Err(StoreChunkPurchaseInvalidReason::AlreadyOwned)
+            )
+            .reason,
+            Some(StoreChunkPurchaseInvalidReason::AlreadyOwned)
         );
         assert_eq!(
             validate_chunk_purchase(
@@ -135,8 +160,9 @@ mod tests {
                 &store,
                 StoreChunkCoord { x: -7, y: -7 },
                 StoreChunkKind::Default
-            ),
-            Err(StoreChunkPurchaseInvalidReason::NotSideAdjacent)
+            )
+            .reason,
+            Some(StoreChunkPurchaseInvalidReason::NotSideAdjacent)
         );
     }
 
@@ -151,7 +177,7 @@ mod tests {
                 StoreChunkCoord { x: -6, y: -1 },
                 StoreChunkKind::Default
             )
-            .is_ok()
+            .valid
         );
         assert!(
             validate_chunk_purchase(
@@ -160,7 +186,7 @@ mod tests {
                 StoreChunkCoord { x: -1, y: -5 },
                 StoreChunkKind::Default
             )
-            .is_ok()
+            .valid
         );
         assert_eq!(
             validate_chunk_purchase(
@@ -168,8 +194,9 @@ mod tests {
                 &store,
                 StoreChunkCoord { x: 0, y: -1 },
                 StoreChunkKind::Default
-            ),
-            Err(StoreChunkPurchaseInvalidReason::DirectionNotAllowed)
+            )
+            .reason,
+            Some(StoreChunkPurchaseInvalidReason::DirectionNotAllowed)
         );
         assert_eq!(
             validate_chunk_purchase(
@@ -177,8 +204,82 @@ mod tests {
                 &store,
                 StoreChunkCoord { x: -1, y: 0 },
                 StoreChunkKind::Default
-            ),
-            Err(StoreChunkPurchaseInvalidReason::DirectionNotAllowed)
+            )
+            .reason,
+            Some(StoreChunkPurchaseInvalidReason::DirectionNotAllowed)
         );
+    }
+
+    #[test]
+    fn side_adjacency_check() {
+        let store = StoreArea::new(Vec2::ZERO);
+        // Initial store has x: -5..0, y: -4..0
+        assert!(is_side_adjacent_to_owned(&store, StoreChunkCoord { x: 0, y: -1 })); // Right
+        assert!(is_side_adjacent_to_owned(&store, StoreChunkCoord { x: -6, y: -1 })); // Left
+        assert!(is_side_adjacent_to_owned(&store, StoreChunkCoord { x: -1, y: 0 })); // Up
+        assert!(is_side_adjacent_to_owned(&store, StoreChunkCoord { x: -1, y: -5 })); // Down
+        assert!(!is_side_adjacent_to_owned(&store, StoreChunkCoord { x: 1, y: 1 })); // Far away
+        assert!(!is_side_adjacent_to_owned(&store, StoreChunkCoord { x: 0, y: 0 })); // Diagonal
+    }
+
+    #[test]
+    fn hole_prevention_in_purchase_validation() {
+        let world = WorldBounds::default();
+        let mut store = StoreArea::new(Vec2::ZERO);
+        
+        // We need to enable more directions for this test
+        store.expansion_policy.allow_right = true;
+        store.expansion_policy.allow_up = true;
+        
+        // Initial chunks: (-5..-1, -4..-1)
+        store.owned_chunks.insert(StoreChunkCoord { x: 0, y: -1 }, StoreChunkData { kind: StoreChunkKind::Default });
+        store.owned_chunks.insert(StoreChunkCoord { x: 0, y: 0 }, StoreChunkData { kind: StoreChunkKind::Default });
+        store.owned_chunks.insert(StoreChunkCoord { x: -1, y: 0 }, StoreChunkData { kind: StoreChunkKind::Default });
+        
+        // Let's use the detects_simple_enclosed_hole logic from chunks.rs but via validate_chunk_purchase
+        store.owned_chunks.clear();
+        for coord in [
+            StoreChunkCoord { x: -1, y: -1 },
+            StoreChunkCoord { x: 0, y: -1 },
+            StoreChunkCoord { x: 1, y: -1 },
+            StoreChunkCoord { x: -1, y: 0 },
+            StoreChunkCoord { x: 1, y: 0 },
+            StoreChunkCoord { x: -1, y: 1 },
+            StoreChunkCoord { x: 0, y: 1 },
+        ] {
+            store.owned_chunks.insert(coord, StoreChunkData { kind: StoreChunkKind::Default });
+        }
+        
+        // Policy must allow the candidate
+        store.expansion_policy.allow_right = true;
+        store.expansion_policy.allow_up = true;
+        store.expansion_policy.allow_left = true;
+        store.expansion_policy.allow_down = true;
+
+        // With the more flexible boundary-based direction policy, 
+        // hole-creating configurations now correctly reach the hole check.
+        assert_eq!(
+            validate_chunk_purchase(&world, &store, StoreChunkCoord { x: 1, y: 1 }, StoreChunkKind::Default).reason,
+            Some(StoreChunkPurchaseInvalidReason::WouldCreateHole)
+        );
+    }
+
+    #[test]
+    fn allows_filling_rows_after_expanding_frontier() {
+        let world = WorldBounds::default();
+        let mut store = StoreArea::new(Vec2::ZERO);
+        // Initial bounds: (-5, -4) to (-1, -1)
+        
+        // 1. Expand Left by one chunk
+        let coord1 = StoreChunkCoord { x: -6, y: -1 };
+        assert!(validate_chunk_purchase(&world, &store, coord1, StoreChunkKind::Default).valid);
+        
+        // Apply it
+        store.owned_chunks.insert(coord1, StoreChunkData { kind: StoreChunkKind::Default });
+        
+        // 2. Buy another chunk in the SAME new column (x = -6)
+        // This used to fail with DirectionNotAllowed because the frontier moved to -6
+        let coord2 = StoreChunkCoord { x: -6, y: -2 };
+        assert!(validate_chunk_purchase(&world, &store, coord2, StoreChunkKind::Default).valid);
     }
 }

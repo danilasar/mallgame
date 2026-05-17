@@ -50,9 +50,13 @@ fn expansion_tool_system(
     }
 
     let coord = store.world_to_chunk_coord(pointer.world_pos);
-    let valid = validate_chunk_purchase(&world, &store, coord, StoreChunkKind::Default).is_ok();
+    let validation = validate_chunk_purchase(&world, &store, coord, StoreChunkKind::Default);
+    let valid = validation.valid;
     if state.hovered_chunk != Some(coord) {
-        info!("Hovered expansion chunk {:?}, valid={}", coord, valid);
+        info!(
+            "Hovered expansion chunk {:?}, valid={}, reason={:?}",
+            coord, valid, validation.reason
+        );
     }
     state.hovered_chunk = Some(coord);
     state.hovered_valid = valid;
