@@ -43,7 +43,7 @@ pub fn cursor_tool_system(
         return;
     }
 
-    if gate.primary_click_released {
+    if gate.primary_world_click_released {
         if let Some(entity) = tool
             .hovered
             .filter(|entity| interactive.get(*entity).is_ok())

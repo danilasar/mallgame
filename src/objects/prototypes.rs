@@ -67,6 +67,7 @@ pub fn spawn_object_from_prototype(
     asset_server: &AssetServer,
     prototype: BuildPrototypeId,
     world_pos: Vec2,
+    rotation_index: usize,
 ) -> Entity {
     let spec = prototype_spec(prototype);
     let image = asset_server.load(spec.asset_path);
@@ -94,7 +95,24 @@ pub fn spawn_object_from_prototype(
         ))
         .id();
 
-    if let Some(rotatable) = rotatable_for_prototype(asset_server, prototype, image, spec) {
+    if let Some(mut rotatable) = rotatable_for_prototype(asset_server, prototype, image, spec) {
+        // Apply initial rotation
+        if rotation_index < rotatable.variants.len() {
+            rotatable.current = rotation_index;
+            let variant = &rotatable.variants[rotation_index];
+            if let Ok(mut e) = commands.get_entity(entity) {
+                e.insert((
+                    Sprite {
+                        image: variant.sprite.clone(),
+                        custom_size: Some(spec.sprite_size),
+                        ..default()
+                    },
+                    variant.footprint.clone(),
+                    FootAnchor(variant.foot_anchor),
+                    VisualOffset(variant.visual_offset),
+                ));
+            }
+        }
         commands.entity(entity).insert(rotatable);
     }
 

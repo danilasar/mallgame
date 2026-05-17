@@ -25,6 +25,7 @@ use bevy::prelude::*;
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
 use crate::objects::prototypes::{BuildPrototypeId, spawn_object_from_prototype};
+use crate::objects::rotation::Rotatable;
 use crate::store::{StoreArea, WorldBounds};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,6 +43,7 @@ impl Plugin for ToolCorePlugin {
         app.add_plugins(ToolPreviewPlugin)
             .init_resource::<ToolContext>()
             .init_resource::<ToolInputGate>()
+            .init_resource::<PrimaryPointerCycle>()
             .init_resource::<ToolRegistry>()
             .init_resource::<ToolSessionState>()
             .init_resource::<ToolReturnState>()
@@ -257,9 +259,11 @@ pub fn apply_committed_events(
     mut deletes: MessageReader<DeleteObjectRequested>,
     mut builds: MessageReader<BuildObjectRequested>,
     mut selected: Query<Entity, With<Selected>>,
-    world_pos: Query<&WorldPos>,
     mut tool: ResMut<ToolContext>,
-    footprints: Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
+    mut set: ParamSet<(
+        Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
+        Query<(&mut Rotatable, &mut Sprite, &mut Footprint, &mut FootAnchor, &mut VisualOffset), Without<ToolPreview>>,
+    )>,
 ) {
     for action in object_actions.read() {
         info!(
@@ -275,37 +279,50 @@ pub fn apply_committed_events(
     }
 
     for movement in moves.read() {
-        if world_pos.get(movement.entity).is_err() {
-            continue;
-        };
+        // 1. Revalidate Move using p0
+        let validation = {
+            let footprints = set.p0();
+            let Ok((_, _, footprint, _)) = footprints.get(movement.entity) else {
+                continue;
+            };
 
-        // Revalidate Move
-        let Ok((_, _, footprint, _)) = footprints.get(movement.entity) else {
-            continue;
+            crate::placement::validate_placement(
+                &world_bounds,
+                &store_area,
+                &footprints,
+                footprint,
+                movement.new_pos,
+                crate::placement::PlacementValidationOptions {
+                    ignore_entity: Some(movement.entity),
+                },
+            )
         };
-
-        let validation = crate::placement::validate_placement(
-            &world_bounds,
-            &store_area,
-            &footprints,
-            footprint,
-            movement.new_pos,
-            crate::placement::PlacementValidationOptions {
-                ignore_entity: Some(movement.entity),
-            },
-        );
 
         if validation.is_ok() {
             if let Ok(mut e) = commands.get_entity(movement.entity) {
                 e.insert(WorldPos(movement.new_pos));
             }
+
+            // 2. Apply final rotation using p1
+            if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) = set.p1().get_mut(movement.entity) {
+                if movement.rotation < rotatable.variants.len() {
+                    rotatable.current = movement.rotation;
+                    let variant = &rotatable.variants[rotatable.current];
+                    sprite.image = variant.sprite.clone();
+                    *fp = variant.footprint.clone();
+                    anchor.0 = variant.foot_anchor;
+                    offset.0 = variant.visual_offset;
+                }
+            }
+
             info!(
-                "MoveObjectCommitted entity={:?} old=({:.1},{:.1}) new=({:.1},{:.1})",
+                "MoveObjectCommitted entity={:?} old=({:.1},{:.1}) new=({:.1},{:.1}) rotation={}",
                 movement.entity,
                 movement.old_pos.x,
                 movement.old_pos.y,
                 movement.new_pos.x,
-                movement.new_pos.y
+                movement.new_pos.y,
+                movement.rotation
             );
         } else {
             warn!(
@@ -331,24 +348,24 @@ pub fn apply_committed_events(
     }
 
     for build in builds.read() {
-        // Revalidate Build (using a temporary prototype spec to get footprint)
+        // Revalidate Build using p0
         let spec = crate::objects::prototypes::prototype_spec(build.prototype);
         let footprint = Footprint::rectangle(spec.footprint_half_extents);
 
         let validation = crate::placement::validate_placement(
             &world_bounds,
             &store_area,
-            &footprints,
+            &set.p0(),
             &footprint,
             build.pos,
             crate::placement::PlacementValidationOptions::default(),
         );
 
         if validation.is_ok() {
-            spawn_object_from_prototype(&mut commands, &asset_server, build.prototype, build.pos);
+            spawn_object_from_prototype(&mut commands, &asset_server, build.prototype, build.pos, build.rotation);
             info!(
-                "BuildObjectRequested prototype={:?} pos=({:.1},{:.1})",
-                build.prototype, build.pos.x, build.pos.y
+                "BuildObjectRequested prototype={:?} pos=({:.1},{:.1}) rotation={}",
+                build.prototype, build.pos.x, build.pos.y, build.rotation
             );
         } else {
             warn!(

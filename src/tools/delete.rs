@@ -42,7 +42,7 @@ pub fn delete_tool_system(
         return;
     }
 
-    if gate.primary_click_released {
+    if gate.primary_world_click_released {
         if let Some(entity) = tool.hovered.filter(|entity| deletable.get(*entity).is_ok()) {
             tool.active = Some(ActiveToolAction::PendingDelete { entity });
             open_confirm_delete_modal(&mut modal_requests, entity);

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::input::{InputAction, PointerContext};
+use crate::input::{InputAction, InputActionState, PointerContext};
 use crate::objects::components::WorldPos;
 use crate::objects::prototypes::{BuildPrototypeId, BuildPrototypes, spawn_ghost_from_prototype};
 use crate::tools::{
@@ -84,6 +84,7 @@ fn start_build_session(
         prototype_id: prototypes.active,
         preview_entity,
         rotation_index: 0,
+        awaiting_fresh_click: true,
     }));
 }
 
@@ -102,6 +103,7 @@ pub fn build_tool_system(
     mut commands: Commands,
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
+    actions: Res<InputActionState>,
     mut next_mode: ResMut<NextState<ToolMode>>,
     mut tool: ResMut<ToolContext>,
     mut session: ResMut<ToolSessionState>,
@@ -124,13 +126,17 @@ pub fn build_tool_system(
         return;
     }
 
-    if let Some(ActiveToolSession::Build(build_session)) = session.active.as_ref() {
+    if let Some(ActiveToolSession::Build(build_session)) = session.active.as_mut() {
+        // Reset freshness once button is fully released (and not in the release frame itself)
+        if !actions.pressed(InputAction::PrimaryClick) && !actions.just_released(InputAction::PrimaryClick) {
+            build_session.awaiting_fresh_click = false;
+        }
+
         if let Ok(mut world_pos) = ghost_positions.get_mut(build_session.preview_entity) {
             world_pos.0 = pointer.world_pos;
         }
 
-        if gate.primary_click_released {
-            // Re-check validity before committing
+        if gate.primary_world_click_released && !build_session.awaiting_fresh_click {
             builds.write(BuildObjectRequested {
                 prototype: build_session.prototype_id,
                 pos: pointer.world_pos,

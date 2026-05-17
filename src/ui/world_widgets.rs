@@ -4,7 +4,7 @@ use crate::objects::components::{Footprint, WorldPos};
 use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
-use crate::tools::{StartMoveObjectRequested, ToolContext, ToolMode};
+use crate::tools::{StartMoveObjectRequested, ToolContext, ToolMode, PointerPressOwner, PrimaryPointerCycle};
 use crate::ui::{
     BlocksWorldInput, UiSet, WorldWidgetsLayer,
     buttons::{UiFonts, label_text},
@@ -34,11 +34,16 @@ fn rotate_widget_button_system(
     mut query: Query<(&Interaction, &RotateWorldWidget), Changed<Interaction>>,
     mut rotates: MessageWriter<RotateObjectRequested>,
     mut starts: MessageWriter<StartMoveObjectRequested>,
+    mut cycle: ResMut<PrimaryPointerCycle>,
 ) {
     for (interaction, widget) in &mut query {
         if *interaction != Interaction::Pressed {
             continue;
         }
+
+        cycle.owner = PointerPressOwner::WorldWidget;
+        cycle.consumed = true;
+
         rotates.write(RotateObjectRequested {
             entity: widget.target,
             steps: 1,

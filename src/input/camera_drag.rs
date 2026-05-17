@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext};
+use crate::tools::{PrimaryPointerCycle, PointerPressOwner};
 use crate::ui::ModalStack;
 
 #[derive(Resource, Debug, Clone)]
@@ -29,6 +30,7 @@ pub fn camera_drag_system(
     pointer: Res<PointerContext>,
     modal: Res<ModalStack>,
     mut drag: ResMut<PointerDragState>,
+    mut cycle: ResMut<PrimaryPointerCycle>,
     mut camera_query: Query<&mut Transform, With<Camera2d>>,
 ) {
     drag.consumed_click = false;
@@ -49,6 +51,7 @@ pub fn camera_drag_system(
         {
             if pointer.screen_pos.distance(start) > drag.drag_threshold_px {
                 drag.is_camera_dragging = true;
+                cycle.owner = PointerPressOwner::CameraDrag;
             }
 
             if drag.is_camera_dragging {

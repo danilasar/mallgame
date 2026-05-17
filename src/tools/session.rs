@@ -21,6 +21,7 @@ pub struct BuildToolSession {
     pub prototype_id: BuildPrototypeId,
     pub preview_entity: Entity,
     pub rotation_index: usize,
+    pub awaiting_fresh_click: bool,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,7 @@ pub struct MoveToolSession {
     pub preview_entity: Entity,
     pub original_world_pos: Vec2,
     pub rotation_index: usize,
+    pub awaiting_fresh_click: bool,
 }
 
 #[derive(Debug)]
@@ -36,6 +38,7 @@ pub struct ExpansionToolSession {
     pub hovered_coord: Option<StoreChunkCoord>,
     pub hovered_validation: Option<ChunkPurchaseValidation>,
     pub pending_modal_coord: Option<StoreChunkCoord>,
+    pub awaiting_fresh_click: bool,
 }
 
 #[derive(Resource, Debug, Default)]

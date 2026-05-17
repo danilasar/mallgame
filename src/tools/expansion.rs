@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::input::PointerContext;
+use crate::input::{InputAction, InputActionState, PointerContext};
 use crate::store::{
     StoreArea, StoreChunkKind, WorldBounds, validate_chunk_purchase,
 };
@@ -32,6 +32,7 @@ fn start_expansion_session(
         hovered_coord: None,
         hovered_validation: None,
         pending_modal_coord: None,
+        awaiting_fresh_click: true,
     }));
 }
 
@@ -46,6 +47,7 @@ fn cleanup_expansion_session(
 fn expansion_tool_system(
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
+    actions: Res<InputActionState>,
     world: Res<WorldBounds>,
     store: Res<StoreArea>,
     mut tool: ResMut<ToolContext>,
@@ -64,6 +66,11 @@ fn expansion_tool_system(
     }
 
     if let Some(ActiveToolSession::Expansion(expansion)) = session.active.as_mut() {
+        // Reset freshness once button is fully released (and not in the release frame itself)
+        if !actions.pressed(InputAction::PrimaryClick) && !actions.just_released(InputAction::PrimaryClick) {
+            expansion.awaiting_fresh_click = false;
+        }
+
         let coord = store.world_to_chunk_coord(pointer.world_pos);
         let validation = validate_chunk_purchase(&world, &store, coord, StoreChunkKind::Default);
         let valid = validation.valid;
@@ -78,7 +85,7 @@ fn expansion_tool_system(
         expansion.hovered_coord = Some(coord);
         expansion.hovered_validation = Some(validation);
 
-        if gate.primary_click_released && valid {
+        if gate.primary_world_click_released && !expansion.awaiting_fresh_click && valid {
             expansion.pending_modal_coord = Some(coord);
             modal_requests.write(ModalRequest::Open(ModalKind::ConfirmPurchaseChunk {
                 coord,

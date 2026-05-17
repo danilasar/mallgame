@@ -101,17 +101,20 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         &asset_server,
         BuildPrototypeId::Chair,
         Vec2::new(-180.0, -20.0),
+        0,
     );
     spawn_object_from_prototype(
         &mut commands,
         &asset_server,
         BuildPrototypeId::Table,
         Vec2::new(80.0, -40.0),
+        0,
     );
     spawn_object_from_prototype(
         &mut commands,
         &asset_server,
         BuildPrototypeId::Tree,
         Vec2::new(140.0, 130.0),
+        0,
     );
 }
