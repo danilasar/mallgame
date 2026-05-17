@@ -173,6 +173,7 @@ fn render_active_interface_panel(
                 ("Move", ToolMode::Move),
                 ("Delete", ToolMode::Delete),
                 ("Build", ToolMode::Build),
+                ("Expand", ToolMode::Expansion),
             ] {
                 let button = commands
                     .spawn((ui_button(label, 118.0, 34.0), ToolModeUiButton { mode }))

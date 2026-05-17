@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, PointerContext};
-use crate::objects::components::Deletable;
+use crate::objects::components::{Deletable, StoreObject};
 use crate::tools::{
     ActiveToolAction, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry, ToolSet,
 };
@@ -32,7 +32,7 @@ impl Plugin for DeleteToolPlugin {
 pub fn delete_tool_system(
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
-    deletable: Query<(), With<Deletable>>,
+    deletable: Query<(), (With<Deletable>, With<StoreObject>)>,
     mut tool: ResMut<ToolContext>,
     mut modal_requests: MessageWriter<ModalRequest>,
 ) {

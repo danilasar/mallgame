@@ -89,6 +89,7 @@ pub fn spawn_object_from_prototype(
             Interactive,
             Movable,
             Deletable,
+            StoreObject,
             PlaceableAssetId(spec.asset_id),
         ))
         .id();

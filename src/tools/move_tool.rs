@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, PointerContext};
-use crate::objects::components::{Movable, Selected, WorldPos};
+use crate::objects::components::{Movable, Selected, StoreObject, WorldPos};
 use crate::tools::{
     ActiveToolAction, MoveObjectCommitted, StartMoveObjectRequested, ToolContext, ToolDescriptor,
     ToolInputGate, ToolMode, ToolRegistry, ToolSet,
@@ -36,7 +36,7 @@ impl Plugin for MoveToolPlugin {
 pub fn start_move_object_requests(
     mut commands: Commands,
     mut requests: MessageReader<StartMoveObjectRequested>,
-    movable: Query<(), With<Movable>>,
+    movable: Query<(), (With<Movable>, With<StoreObject>)>,
     selected: Query<Entity, With<Selected>>,
     positions: Query<&WorldPos>,
     mut tool: ResMut<ToolContext>,
@@ -65,7 +65,7 @@ pub fn move_tool_system(
     mut commands: Commands,
     pointer: Res<PointerContext>,
     gate: Res<ToolInputGate>,
-    movable: Query<(), With<Movable>>,
+    movable: Query<(), (With<Movable>, With<StoreObject>)>,
     mut positions: Query<&mut WorldPos>,
     selected: Query<Entity, With<Selected>>,
     mut tool: ResMut<ToolContext>,

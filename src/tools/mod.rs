@@ -2,6 +2,7 @@ pub mod build;
 pub mod context;
 pub mod cursor;
 pub mod delete;
+pub mod expansion;
 pub mod gate;
 pub mod mode;
 pub mod move_tool;
@@ -10,6 +11,7 @@ pub use build::*;
 pub use context::*;
 pub use cursor::*;
 pub use delete::*;
+pub use expansion::*;
 pub use gate::*;
 pub use mode::*;
 pub use move_tool::*;
@@ -66,6 +68,7 @@ impl Plugin for ToolCorePlugin {
                 Update,
                 (
                     apply_committed_events,
+                    crate::store::apply_purchase_store_chunk_requested,
                     log_tool_changed_requests,
                     print_positions_system,
                 )

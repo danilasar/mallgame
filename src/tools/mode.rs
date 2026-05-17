@@ -10,6 +10,7 @@ pub enum ToolMode {
     Move,
     Delete,
     Build,
+    Expansion,
 }
 
 #[derive(Debug, Clone)]

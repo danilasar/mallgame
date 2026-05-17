@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
+use crate::store::{PurchaseStoreChunkRequested, StoreChunkCoord, StoreChunkKind};
 use crate::tools::{DeleteObjectRequested, ToolContext};
 use crate::ui::{
     BlocksWorldInput, ModalLayer, UiSet,
@@ -25,7 +26,13 @@ pub struct ModalInstance {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ModalKind {
-    ConfirmDelete { entity: Entity },
+    ConfirmDelete {
+        entity: Entity,
+    },
+    ConfirmPurchaseChunk {
+        coord: StoreChunkCoord,
+        kind: StoreChunkKind,
+    },
 }
 
 #[derive(Message, Debug, Clone, Copy)]
@@ -99,6 +106,7 @@ pub fn apply_modal_requests(
     mut tool: ResMut<ToolContext>,
     mut requests: MessageReader<ModalRequest>,
     mut deletes: MessageWriter<DeleteObjectRequested>,
+    mut purchases: MessageWriter<PurchaseStoreChunkRequested>,
     existing: Query<(), With<crate::objects::components::WorldPos>>,
 ) {
     for request in requests.read() {
@@ -119,6 +127,9 @@ pub fn apply_modal_requests(
                             if existing.get(entity).is_ok() {
                                 deletes.write(DeleteObjectRequested { entity });
                             }
+                        }
+                        ModalKind::ConfirmPurchaseChunk { coord, kind } => {
+                            purchases.write(PurchaseStoreChunkRequested { coord, kind });
                         }
                     }
                 }
@@ -210,6 +221,32 @@ fn render_modal_stack(
                     .with_children(|row| {
                         row.spawn((ui_button("Удалить", 110.0, 38.0), ModalButton::Confirm))
                             .with_child(label_text("Удалить", &fonts));
+                        row.spawn((ui_button("Отмена", 110.0, 38.0), ModalButton::Cancel))
+                            .with_child(label_text("Отмена", &fonts));
+                    });
+            }
+            ModalKind::ConfirmPurchaseChunk { .. } => {
+                parent.spawn((ui_text(
+                    "Расширить магазин?",
+                    20.0,
+                    Color::srgb(0.98, 0.92, 0.78),
+                    &fonts,
+                ),));
+                parent.spawn((ui_text(
+                    "Будет куплен участок 4×4.",
+                    14.0,
+                    Color::srgb(0.88, 0.82, 0.70),
+                    &fonts,
+                ),));
+                parent
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(10.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        row.spawn((ui_button("Расширить", 118.0, 38.0), ModalButton::Confirm))
+                            .with_child(label_text("Расширить", &fonts));
                         row.spawn((ui_button("Отмена", 110.0, 38.0), ModalButton::Cancel))
                             .with_child(label_text("Отмена", &fonts));
                     });

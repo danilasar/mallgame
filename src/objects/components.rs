@@ -121,3 +121,6 @@ impl HighlightKind {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PlaceableAssetId(pub &'static str);
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct StoreObject;

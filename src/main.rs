@@ -2,6 +2,7 @@ mod input;
 mod objects;
 mod placement;
 mod presentation;
+mod store;
 mod tools;
 mod ui;
 
@@ -11,6 +12,7 @@ use objects::components::*;
 use objects::prototypes::*;
 use objects::rotation::*;
 use presentation::*;
+use store::*;
 use tools::*;
 use ui::*;
 
@@ -35,14 +37,20 @@ fn main() {
         .add_plugins((
             UiCorePlugin,
             RightDockUiPlugin,
+            BottomBuildPanelPlugin,
             CameraControlsUiPlugin,
             ModalUiPlugin,
             WorldWidgetUiPlugin,
+            StorePlugin,
+            StoreOverlayPlugin,
+        ))
+        .add_plugins((
             ToolCorePlugin,
             CursorToolPlugin,
             MoveToolPlugin,
             DeleteToolPlugin,
             BuildToolPlugin,
+            ExpansionToolPlugin,
             ObjectRotationPlugin,
             FootprintOverlayPlugin,
         ))
