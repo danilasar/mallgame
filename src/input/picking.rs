@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::input::PointerContext;
 use crate::objects::components::*;
 use crate::presentation::{IsoProjection, world_to_iso};
-use crate::store::WallSurface;
+use crate::store::{WallSegmentKey, WallSurface};
 use crate::tools::NonInteractive;
 
 #[derive(Resource, Default, Debug)]
@@ -13,6 +13,16 @@ pub struct PointerTargets {
     pub wall_surface: Option<Entity>,
     pub exterior: Option<Entity>,
     pub debug: Option<Entity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WallSurfaceHit {
+    pub entity: Entity,
+    pub key: WallSegmentKey,
+    pub world_pos: Vec2,
+    pub offset_along_segment: f32,
+    pub height_on_wall: f32,
+    pub normal: Vec2,
 }
 
 #[allow(clippy::type_complexity)]
@@ -26,7 +36,7 @@ pub fn update_hovered_object(
             Option<&WorldPos>,
             Option<&FootAnchor>,
             Option<&WallSurface>,
-            &Sprite,
+            Option<&Sprite>,
             &Transform,
             &SortLayer,
             &InteractionRole,
@@ -74,7 +84,7 @@ pub fn update_hovered_object(
     ) in &query
     {
         let hit = if let Some(surface) = wall_surface {
-            wall_surface_hit(pointer.projected_pos, *projection, surface, sprite)
+            wall_surface_hit(pointer.projected_pos, *projection, entity, surface).is_some()
         } else {
             object_hit(pointer.projected_pos, *projection, world_pos, foot_anchor, sprite)
         };
@@ -124,9 +134,12 @@ fn object_hit(
     projection: IsoProjection,
     world_pos: Option<&WorldPos>,
     foot_anchor: Option<&FootAnchor>,
-    sprite: &Sprite,
+    sprite: Option<&Sprite>,
 ) -> bool {
     let (Some(world_pos), Some(foot_anchor)) = (world_pos, foot_anchor) else {
+        return false;
+    };
+    let Some(sprite) = sprite else {
         return false;
     };
     let Some(size) = sprite.custom_size else {
@@ -141,40 +154,134 @@ fn object_hit(
     local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y
 }
 
-fn wall_surface_hit(
+pub fn wall_surface_hit(
     projected_pos: Vec2,
     projection: IsoProjection,
+    entity: Entity,
     wall_surface: &WallSurface,
-    sprite: &Sprite,
-) -> bool {
-    let Some(size) = sprite.custom_size else {
-        return false;
-    };
+) -> Option<WallSurfaceHit> {
     let projected_start = world_to_iso(wall_surface.start, projection);
     let projected_end = world_to_iso(wall_surface.end, projection);
-    let distance = point_to_segment_distance(projected_pos, projected_start, projected_end);
-    let thickness = size.y.max(wall_surface.thickness) * 0.5;
-    distance <= thickness + 1.0
-}
-
-fn point_to_segment_distance(point: Vec2, start: Vec2, end: Vec2) -> f32 {
-    let segment = end - start;
+    let segment = projected_end - projected_start;
     let length_sq = segment.length_squared();
     if length_sq <= f32::EPSILON {
-        return point.distance(start);
+        return None;
     }
-    let t = ((point - start).dot(segment) / length_sq).clamp(0.0, 1.0);
-    let projection = start + segment * t;
-    point.distance(projection)
+
+    let wall_direction = segment.normalize();
+    let wall_normal = Vec2::new(-wall_direction.y, wall_direction.x);
+    let thickness_offset = wall_normal * wall_surface.thickness;
+    let quad = [
+        projected_start,
+        projected_end,
+        projected_end + thickness_offset + Vec2::new(0.0, wall_surface.height),
+        projected_start + thickness_offset + Vec2::new(0.0, wall_surface.height),
+    ];
+
+    if !point_in_convex_quad(projected_pos, quad) {
+        return None;
+    }
+
+    let relative = projected_pos - projected_start;
+    let along = relative.dot(wall_direction);
+    let projected_length = segment.length();
+    let t = (along / projected_length).clamp(0.0, 1.0);
+    let offset_along_segment = (wall_surface.length * t).clamp(0.0, wall_surface.length);
+    let base_world = wall_surface.start.lerp(wall_surface.end, t);
+    let base_projected = projected_start.lerp(projected_end, t);
+    let height_on_wall = (projected_pos.y - base_projected.y).clamp(0.0, wall_surface.height);
+
+    Some(WallSurfaceHit {
+        entity,
+        key: wall_surface.key,
+        world_pos: base_world,
+        offset_along_segment,
+        height_on_wall,
+        normal: wall_surface.normal,
+    })
+}
+
+pub(crate) fn point_in_convex_quad(point: Vec2, quad: [Vec2; 4]) -> bool {
+    let mut last_sign = 0.0;
+    for i in 0..4 {
+        let a = quad[i];
+        let b = quad[(i + 1) % 4];
+        let edge = b - a;
+        let to_point = point - a;
+        let cross = edge.perp_dot(to_point);
+        if cross.abs() <= f32::EPSILON {
+            continue;
+        }
+        let sign = cross.signum();
+        if last_sign == 0.0 {
+            last_sign = sign;
+        } else if sign != last_sign {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::presentation::IsoProjection;
+    use crate::store::{StoreChunkCoord, WallSegmentKey, WallSurface};
 
     #[test]
-    fn point_to_segment_distance_handles_degenerate_and_regular_segments() {
-        assert!((point_to_segment_distance(Vec2::ZERO, Vec2::ZERO, Vec2::ZERO) - 0.0).abs() < 0.0001);
-        assert!((point_to_segment_distance(Vec2::new(2.0, 1.0), Vec2::ZERO, Vec2::new(4.0, 0.0)) - 1.0).abs() < 0.0001);
+    fn wall_surface_hit_projects_and_clamps_to_surface() {
+        let projection = IsoProjection::default();
+        let surface = WallSurface {
+            key: WallSegmentKey {
+                chunk: StoreChunkCoord { x: 0, y: 0 },
+                side: crate::store::boundary::StoreBoundarySide::Top,
+            },
+            start: Vec2::new(0.0, 0.0),
+            end: Vec2::new(4.0, 0.0),
+            length: 4.0,
+            height: 6.0,
+            thickness: 2.0,
+            normal: Vec2::Y,
+        };
+
+        let projected_start = world_to_iso(surface.start, projection);
+        let projected_end = world_to_iso(surface.end, projection);
+        let projected_mid = projected_start.lerp(projected_end, 0.5);
+        let wall_direction = (projected_end - projected_start).normalize();
+        let wall_normal = Vec2::new(-wall_direction.y, wall_direction.x);
+        let projected_mid_on_face = projected_mid + wall_normal * 1.0;
+
+        let hit = wall_surface_hit(
+            projected_mid_on_face,
+            projection,
+            Entity::from_bits(1),
+            &surface,
+        )
+            .expect("expected a wall hit");
+
+        assert_eq!(hit.key, surface.key);
+        assert!((hit.offset_along_segment - 2.0).abs() < 0.001);
+        assert!(hit.height_on_wall >= 0.0 && hit.height_on_wall <= surface.height);
+        assert_eq!(hit.normal, Vec2::Y);
+        assert!((hit.world_pos - Vec2::new(2.0, 0.0)).length() < 0.001);
+
+        let elevated = projected_mid_on_face + Vec2::new(0.0, 0.5);
+        let elevated_hit =
+            wall_surface_hit(elevated, projection, Entity::from_bits(2), &surface)
+                .expect("expected elevated wall hit");
+        assert!(elevated_hit.height_on_wall > 0.0);
+
+        let wall_face = projected_mid_on_face + wall_normal * 0.5;
+        assert!(
+            wall_surface_hit(wall_face, projection, Entity::from_bits(4), &surface).is_some()
+        );
+
+        let behind_wall = projected_mid_on_face - wall_normal * 2.5;
+        assert!(
+            wall_surface_hit(behind_wall, projection, Entity::from_bits(5), &surface).is_none()
+        );
+
+        let outside = projected_mid_on_face + wall_direction * 5.0;
+        assert!(wall_surface_hit(outside, projection, Entity::from_bits(3), &surface).is_none());
     }
 }

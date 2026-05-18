@@ -111,6 +111,8 @@ Gameplay mutation authority:
 - Store walls are derived from the outer top-right owned chunk of `StoreArea + expansion policy`, extend along the top row and right column while the run remains contiguous, are not save authority, and are synced through a `WallVisualCache`.
 - Wall entities carry `StoreWallSegment` and `WallSurface` metadata; `WallSurface` stores `start/end`, length, thickness, height, and normal for future wall tools.
 - `PointerTargets` now has dedicated `wall_surface` and `exterior` slots for safe picking separation.
+- Stage 5B.2 adds `PlacementKind::WallMounted` as a preview-only branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`, but do not yet spawn real wall-mounted objects or domain commands.
+- The Ribbon now exposes a `Walls` tab for the wall-mounted dev prototype, and the startup scene also spawns one real `StoreObject` instance of the wall prototype for Move/Delete smoke testing.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
 - Domain mutations are unified behind the `DomainCommand` system.
@@ -142,4 +144,4 @@ Gameplay mutation authority:
 - Economy system and currency-based validation in commands.
 - Save migrations and multiple slots.
 - Further decomposition of `DomainCommand` apply paths if new gameplay commands add more branching.
-- Stage 5B.1 wall/exterior foundation and future wall-mounted placement.
+- Stage 5B.1 wall/exterior foundation and Stage 5B.2 wall-mounted preview integration.

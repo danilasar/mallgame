@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::prototypes::BuildObjectId;
+use crate::store::WallSegmentKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StableObjectId(pub u64);
@@ -37,6 +38,13 @@ pub struct FootAnchor(pub Vec2);
 
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct VisualOffset(pub Vec2);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WallAttachmentPoint {
+    pub segment_key: WallSegmentKey,
+    pub offset_along_segment: f32,
+    pub height_on_wall: f32,
+}
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortLayer {

@@ -6,6 +6,7 @@ use std::fmt;
 
 use super::components::*;
 use super::rotation::{Rotatable, RotationVariant};
+use crate::tools::{NonInteractive, PlacementPreview, ToolPreview, ToolPreviewKind, WallMountedPreview};
 
 /// Stable identifier for an object prototype.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -64,6 +65,7 @@ pub enum BuildRibbonTab {
     Fixtures,
     Service,
     Decor,
+    Walls,
     Store,
 }
 
@@ -73,6 +75,7 @@ impl BuildRibbonTab {
             Self::Fixtures => "Fixtures",
             Self::Service => "Service",
             Self::Decor => "Decor",
+            Self::Walls => "Walls",
             Self::Store => "Store",
         }
     }
@@ -87,6 +90,7 @@ pub enum BuildRibbonGroup {
     Fridges,
     Checkout,
     Decor,
+    Walls,
     #[allow(dead_code)]
     Expansion,
 }
@@ -100,6 +104,7 @@ impl BuildRibbonGroup {
             Self::Fridges => "Fridges",
             Self::Checkout => "Checkout",
             Self::Decor => "Decor",
+            Self::Walls => "Walls",
             Self::Expansion => "Expansion",
         }
     }
@@ -127,6 +132,7 @@ pub struct ObjectCatalogSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementKind {
     Floor,
+    WallMounted,
 }
 
 #[derive(Debug, Clone)]
@@ -402,6 +408,48 @@ pub fn spawn_ghost_from_prototype(
         .id()
 }
 
+pub fn spawn_wall_mounted_preview(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    proto: &ObjectPrototype,
+    world_pos: Vec2,
+    visual_offset: Vec2,
+    visible: bool,
+) -> Entity {
+    commands
+        .spawn((
+            Sprite {
+                image: asset_server.load(&proto.visuals.asset_path),
+                custom_size: Some(proto.visuals.sprite_size),
+                color: Color::srgba(0.65, 0.90, 1.0, 0.55),
+                ..default()
+            },
+            WorldPos(world_pos),
+            ProjectedPos::default(),
+            FootAnchor(proto.visuals.foot_anchor),
+            VisualOffset(visual_offset),
+            SortLayer::WallTopCap,
+            SortBias(proto.visuals.sort_bias),
+            ToolPreview,
+            ToolPreviewKind::WallMounted {
+                prototype_id: proto.id.clone(),
+            },
+            PlacementPreview { validation: None },
+            NonInteractive,
+            WallMountedPreview,
+            InteractionRole::ToolPreview,
+            RuntimeOwned {
+                owner: RuntimeOwner::ToolPreview,
+            },
+            if visible {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            },
+        ))
+        .id()
+}
+
 fn rotatable_for_prototype(
     asset_server: &AssetServer,
     proto: &ObjectPrototype,
@@ -587,6 +635,47 @@ pub fn setup_object_catalog(mut commands: Commands) {
         },
     );
 
+    // 4. Wall decor placeholder for Stage 5B.2 preview testing
+    catalog.prototypes.insert(
+        BuildObjectId::new("wall.decor.placeholder"),
+        ObjectPrototype {
+            id: BuildObjectId::new("wall.decor.placeholder"),
+            display: ObjectDisplaySpec {
+                display_name: "Wall Decor".to_string(),
+                description: Some("Internal wall-mounted preview test object.".to_string()),
+                icon: None,
+            },
+            catalog: ObjectCatalogSpec {
+                category: ObjectCategory::Decor,
+                ribbon_tab: BuildRibbonTab::Walls,
+                ribbon_group: BuildRibbonGroup::Walls,
+                sort_order: 999,
+                availability: CatalogAvailability::Available,
+            },
+            placement: PlacementSpec {
+                kind: PlacementKind::WallMounted,
+                footprint_half_extents: Vec2::new(20.0, 14.0),
+                placement_blocker: false,
+                navigation_blocker: false,
+            },
+            visuals: VisualSpec {
+                asset_path: "tree.png".to_string(),
+                asset_id: "wall_decor_placeholder".to_string(),
+                sprite_size: Vec2::new(64.0, 64.0),
+                foot_anchor: Vec2::new(0.0, -24.0),
+                sort_bias: 0.0,
+            },
+            rotation: RotationSpec {
+                kind: RotationKind::None,
+                rotated_asset_path: None,
+            },
+            capabilities: vec![ObjectCapabilitySpec::Decor(DecorSpec {
+                decor_kind: DecorKind::Misc,
+            })],
+            initial_state: ObjectInitialStateSpec::None,
+        },
+    );
+
     // 4. Legacy Aliases for Save/Load compat
     let shelf = catalog
         .prototypes
@@ -765,5 +854,26 @@ mod tests {
         assert!(world.entity(entity).contains::<NpcInteractionPoints>());
         assert!(!world.entity(entity).contains::<CheckoutPoint>());
         assert!(world.entity(entity).contains::<StoreObject>());
+    }
+
+    #[test]
+    fn test_wall_mounted_prototype_is_visible_in_walls_tab() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(AssetPlugin::default());
+        app.init_asset::<Image>();
+        let commands = app.world_mut().commands();
+        setup_object_catalog(commands);
+        app.update();
+
+        let catalog = app.world().resource::<ObjectCatalog>();
+        let proto = catalog
+            .prototypes
+            .get(&BuildObjectId::new("wall.decor.placeholder"))
+            .expect("wall decor prototype should exist");
+
+        assert_eq!(proto.placement.kind, PlacementKind::WallMounted);
+        assert_eq!(proto.catalog.ribbon_tab, BuildRibbonTab::Walls);
+        assert_eq!(proto.catalog.availability, CatalogAvailability::Available);
     }
 }

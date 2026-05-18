@@ -84,7 +84,14 @@ pub fn handle_rotate_requests(
                 }
             } else if let Some(crate::tools::ActiveToolSession::Build(s)) = session.active.as_mut()
             {
-                s.rotation_index = new_index;
+                match s {
+                    crate::tools::BuildToolSession::Floor(floor) => {
+                        floor.rotation_index = new_index;
+                    }
+                    crate::tools::BuildToolSession::WallMounted(wall) => {
+                        wall.rotation_index = new_index;
+                    }
+                }
             }
         } else {
             // Real rotation goes through command queue

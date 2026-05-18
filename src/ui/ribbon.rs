@@ -197,6 +197,7 @@ fn render_ribbon_content_system(
                     BuildRibbonTab::Fixtures,
                     BuildRibbonTab::Service,
                     BuildRibbonTab::Decor,
+                    BuildRibbonTab::Walls,
                     BuildRibbonTab::Store,
                 ] {
                     let is_active = state.active_tab == tab;
@@ -262,6 +263,17 @@ fn render_ribbon_content_system(
                         col.spawn(ui_text("Select an adjacent 4x4 block on the map to expand your store area.", 12.0, Color::srgb(0.7, 0.7, 0.6), &fonts));
                     });
                     return;
+                }
+
+                if state.active_tab == BuildRibbonTab::Walls {
+                    content_area.spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(8.0),
+                        ..default()
+                    }).with_children(|col| {
+                        col.spawn(ui_text("Wall-mounted preview objects", 14.0, Color::WHITE, &fonts));
+                        col.spawn(ui_text("Preview only in Stage 5B.2. Click to attach the dev wall decor placeholder to a wall surface.", 12.0, Color::srgb(0.7, 0.7, 0.6), &fonts));
+                    });
                 }
 
                 // Filter prototypes for active tab

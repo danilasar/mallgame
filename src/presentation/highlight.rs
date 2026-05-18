@@ -65,7 +65,7 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
         _ => None,
     };
     let current_preview = match &params.session.active {
-        Some(ActiveToolSession::Build(session)) => Some(session.preview_entity),
+        Some(ActiveToolSession::Build(session)) => Some(session.preview_entity()),
         Some(ActiveToolSession::Move(session)) => Some(session.preview_entity),
         Some(ActiveToolSession::Expansion(_)) | None => None,
     };

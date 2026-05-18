@@ -70,7 +70,12 @@ pub fn unified_tool_validation_system(
     store_area: Res<StoreArea>,
     mut session: ResMut<ToolSessionState>,
     footprints: Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
-    mut previews: Query<(&mut PlacementPreview, &WorldPos, &Footprint)>,
+    mut previews: Query<(
+        &mut PlacementPreview,
+        &WorldPos,
+        Option<&Footprint>,
+        Option<&crate::tools::WallMountedPreview>,
+    )>,
 ) {
     let Some(active) = session.active.as_mut() else {
         return;
@@ -78,20 +83,36 @@ pub fn unified_tool_validation_system(
 
     match active {
         ActiveToolSession::Build(build) => {
-            if let Ok((mut preview, pos, footprint)) = previews.get_mut(build.preview_entity) {
-                let result = crate::placement::validate_placement(
-                    &world_bounds,
-                    &store_area,
-                    &footprints,
-                    footprint,
-                    pos.0,
-                    crate::placement::PlacementValidationOptions::default(),
-                );
-                preview.validation = Some(result);
+            match build {
+                BuildToolSession::Floor(floor) => {
+                    if let Ok((mut preview, pos, Some(footprint), _)) =
+                        previews.get_mut(floor.preview_entity)
+                    {
+                        let result = crate::placement::validate_placement(
+                            &world_bounds,
+                            &store_area,
+                            &footprints,
+                            footprint,
+                            pos.0,
+                            crate::placement::PlacementValidationOptions::default(),
+                        );
+                        preview.validation = Some(result);
+                    }
+                }
+                BuildToolSession::WallMounted(wall) => {
+                    if let Ok((mut preview, _, _, Some(_))) = previews.get_mut(wall.preview_entity)
+                    {
+                        preview.validation = Some(match wall.current_attachment {
+                            Some(_) => Ok(()),
+                            None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
+                        });
+                    }
+                }
             }
         }
         ActiveToolSession::Move(move_session) => {
-            if let Ok((mut preview, pos, footprint)) = previews.get_mut(move_session.preview_entity)
+            if let Ok((mut preview, pos, Some(footprint), _)) =
+                previews.get_mut(move_session.preview_entity)
             {
                 let result = crate::placement::validate_placement(
                     &world_bounds,
@@ -181,7 +202,7 @@ pub fn cleanup_current_session(
 
     match active {
         ActiveToolSession::Build(s) => {
-            if let Ok(mut e) = commands.get_entity(s.preview_entity) {
+            if let Ok(mut e) = commands.get_entity(s.preview_entity()) {
                 e.despawn();
             }
         }

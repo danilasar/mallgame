@@ -156,6 +156,7 @@ fn setup(
         ("fixture.shelf.basic", Vec2::new(-180.0, -20.0)),
         ("service.checkout.basic", Vec2::new(80.0, -40.0)),
         ("decor.plant.tree", Vec2::new(140.0, 130.0)),
+        ("wall.decor.placeholder", Vec2::new(200.0, 120.0)),
     ];
 
     for (proto_id, pos) in prototypes {

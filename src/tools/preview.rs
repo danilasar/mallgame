@@ -15,6 +15,7 @@ pub struct ToolPreview;
 pub enum ToolPreviewKind {
     Build { prototype_id: BuildObjectId },
     Move { source_entity: Entity },
+    WallMounted { prototype_id: BuildObjectId },
 }
 
 #[derive(Component, Debug, Clone)]
@@ -29,3 +30,6 @@ pub struct PreviewSource {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct NonInteractive;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WallMountedPreview;

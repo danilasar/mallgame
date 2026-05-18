@@ -315,7 +315,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn initial_store_generates_two_corner_segments() {
+    fn initial_store_generates_boundary_runs() {
         let store = StoreArea::new(Vec2::ZERO);
         let world = WorldBounds::default();
         let segments = collect_boundary_segments(&store, &world);
