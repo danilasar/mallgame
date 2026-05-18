@@ -284,6 +284,12 @@ pub struct Interactive;
 pub struct Movable;
 
 #[derive(Component, Debug, Clone, Copy)]
+pub struct WallMovable;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WallMovePreview;
+
+#[derive(Component, Debug, Clone, Copy)]
 pub struct Deletable;
 
 #[derive(Component, Debug, Clone, Copy)]

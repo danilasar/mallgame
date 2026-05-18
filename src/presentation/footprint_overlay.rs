@@ -1,12 +1,13 @@
 use bevy::prelude::*;
 
 use crate::objects::components::{
-    Footprint, InteractionRole, Movable, RuntimeOwned, RuntimeOwner, SortLayer, WallMounted,
-    WorldPos,
+    Footprint, InteractionRole, RuntimeOwned, RuntimeOwner, SortLayer, WallMounted,
+    WorldPos, Wallprint,
 };
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
 use crate::presentation::world_to_iso;
+use crate::store::{WallSurface, wall_surface_visual_offset, wall_surface_world_pos};
 use crate::tools::{NonInteractive, ToolMode};
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -34,7 +35,9 @@ pub fn update_footprint_outline_overlay(
     session: Res<crate::tools::ToolSessionState>,
     tool: Res<crate::tools::ToolContext>,
     projection: Res<IsoProjection>,
-    objects: Query<(&WorldPos, &Footprint, Option<&Movable>), Without<WallMounted>>,
+    objects: Query<(&WorldPos, &Footprint), Without<WallMounted>>,
+    wall_objects: Query<&Wallprint>,
+    wall_surfaces: Query<&WallSurface>,
     mut overlays: Query<
         (
             Entity,
@@ -64,29 +67,50 @@ pub fn update_footprint_outline_overlay(
         }
         return;
     };
-    let Ok((world_pos, footprint, _movable)) = objects.get(target) else {
+
+    let mut points = Vec::new();
+
+    if let Ok((world_pos, footprint)) = objects.get(target) {
+        let world_points = world_polygon(footprint, world_pos.0);
+        for p in world_points {
+            points.push(world_to_iso(p, *projection));
+        }
+    } else if let Ok(wallprint) = wall_objects.get(target) {
+        if let Some(rect) = wallprint.rects.first() {
+            if let Some(surface) = wall_surfaces.iter().find(|s| s.key == rect.segment_key) {
+                let p1_world = wall_surface_world_pos(surface, rect.offset_min);
+                let p2_world = wall_surface_world_pos(surface, rect.offset_max);
+
+                let p1_iso = world_to_iso(p1_world, *projection);
+                let p2_iso = world_to_iso(p2_world, *projection);
+
+                let v_min = wall_surface_visual_offset(surface, *projection, rect.height_min);
+                let v_max = wall_surface_visual_offset(surface, *projection, rect.height_max);
+
+                points.push(p1_iso + v_min);
+                points.push(p2_iso + v_min);
+                points.push(p2_iso + v_max);
+                points.push(p1_iso + v_max);
+            }
+        }
+    }
+
+    if points.len() < 2 {
         for (_, _, _, _, mut visibility) in &mut overlays {
             *visibility = Visibility::Hidden;
         }
-        return;
-    };
-
-    let points = world_polygon(footprint, world_pos.0);
-    if points.len() < 2 {
         return;
     }
 
     let mut segment_count = 0usize;
     let existing_segments: Vec<_> = overlays.iter().map(|(e, _, _, _, _)| e).collect();
 
-    for (a, b) in points
+    for (pa, pb) in points
         .iter()
         .copied()
         .zip(points.iter().copied().cycle().skip(1))
         .take(points.len())
     {
-        let pa = world_to_iso(a, *projection);
-        let pb = world_to_iso(b, *projection);
         let mid = (pa + pb) * 0.5;
         let delta = pb - pa;
         let length = delta.length();

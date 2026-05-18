@@ -347,7 +347,7 @@ pub fn wall_attachment_from_hit(
     }
 }
 
-fn find_wall_attachment_candidate(
+pub fn find_wall_attachment_candidate(
     projected_pos: Vec2,
     projection: IsoProjection,
     wall_surfaces: &Query<(Entity, &WallSurface)>,
@@ -378,22 +378,28 @@ fn find_wall_attachment_candidate(
         let along = relative.dot(wall_direction).clamp(0.0, segment_length);
         let base_projected = projected_start + wall_direction * along;
         let surface_base_projected = base_projected + thickness_offset;
-        let distance_to_line = projected_pos.distance(base_projected);
+        let t = (along / segment_length).clamp(0.0, 1.0);
+        let offset_along_segment = (surface.length * t).clamp(preview_half_width, surface.length);
+        let height_on_wall =
+            (projected_pos.y - surface_base_projected.y).clamp(0.0, surface.height);
+
+        // Distance from the plane of the wall surface
+        // projected_pos is somewhere. surface_base_projected is the bottom edge of the wall face.
+        let to_surface_base = projected_pos - surface_base_projected;
+        let distance_from_wall_plane = to_surface_base.dot(wall_normal).abs();
+
         let inside_quad = point_in_convex_quad(projected_pos, quad);
+        
         let acceptance = if inside_quad {
-            distance_to_line
+            distance_from_wall_plane
         } else {
-            distance_to_line + 10_000.0
+            // If outside, penalize by actual distance to the quad
+            projected_pos.distance(base_projected) + 10_000.0
         };
 
         if acceptance > surface.thickness + preview_half_width + 48.0 {
             continue;
         }
-
-        let t = (along / segment_length).clamp(0.0, 1.0);
-        let offset_along_segment = (surface.length * t).clamp(preview_half_width, surface.length);
-        let height_on_wall =
-            (projected_pos.y - surface_base_projected.y).clamp(0.0, surface.height);
         let attachment = WallAttachmentPoint {
             segment_key: surface.key,
             offset_along_segment,

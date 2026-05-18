@@ -185,6 +185,7 @@ pub struct WallMountedSpec {
     pub height: f32,
     pub allowed_sides: Vec<crate::store::StoreBoundarySide>,
     pub default_height_on_wall: f32,
+    pub movable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -390,6 +391,10 @@ pub fn spawn_store_object_from_prototype(
                     height_min: bounds.height_min,
                     height_max: bounds.height_max,
                 });
+
+                if spec.movable {
+                    entity_commands.insert(WallMovable);
+                }
             }
         }
     }
@@ -792,6 +797,7 @@ pub fn setup_object_catalog(mut commands: Commands) {
                         crate::store::StoreBoundarySide::Right,
                     ],
                     default_height_on_wall: 48.0,
+                    movable: true,
                 }),
             ],
             initial_state: ObjectInitialStateSpec::None,
@@ -846,6 +852,7 @@ pub fn setup_object_catalog(mut commands: Commands) {
                         crate::store::StoreBoundarySide::Right,
                     ],
                     default_height_on_wall: 56.0,
+                    movable: true,
                 }),
                 ObjectCapabilitySpec::Window(WindowSpec {
                     width: 72.0,

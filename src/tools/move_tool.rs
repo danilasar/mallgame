@@ -2,13 +2,15 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
 use crate::objects::components::{
-    FootAnchor, Footprint, InteractionRole, Movable, ProjectedPos, RuntimeOwned, RuntimeOwner,
-    SortBias, SortLayer, StoreObject, VisualOffset, WorldPos,
+    FootAnchor, Footprint, InteractionRole, Movable, ObjectPlacement, ObjectPrototypeId,
+    ProjectedPos, RuntimeOwned, RuntimeOwner, SortBias, SortLayer, StoreObject, VisualOffset,
+    WallMovable, WallMountedPlacement, WallMovePreview, WorldPos,
 };
 use crate::tools::{
-    ActiveToolSession, MoveObjectCommitted, MoveToolSession, NonInteractive, PlacementPreview,
-    PreviewSource, StartMoveObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
-    ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
+    ActiveToolSession, FloorMoveSession, MoveObjectCommitted, MoveToolSession, NonInteractive,
+    PlacementPreview, PreviewSource, StartMoveObjectRequested, ToolContext, ToolDescriptor,
+    ToolInputGate, ToolMode, ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
+    WallMoveSession,
 };
 use bevy::ecs::system::SystemParam;
 
@@ -41,7 +43,7 @@ impl Plugin for MoveToolPlugin {
 pub(crate) struct StartMoveObjectParams<'w, 's> {
     commands: Commands<'w, 's>,
     requests: MessageReader<'w, 's, StartMoveObjectRequested>,
-    movable: Query<
+    movable_floor: Query<
         'w,
         's,
         (
@@ -54,6 +56,19 @@ pub(crate) struct StartMoveObjectParams<'w, 's> {
             Option<&'static crate::objects::rotation::Rotatable>,
         ),
         (With<Movable>, With<StoreObject>),
+    >,
+    movable_wall: Query<
+        'w,
+        's,
+        (
+            &'static WallMountedPlacement,
+            &'static ObjectPrototypeId,
+            &'static VisualOffset,
+            &'static Sprite,
+            &'static SortBias,
+            Option<&'static crate::objects::rotation::Rotatable>,
+        ),
+        (With<WallMovable>, With<StoreObject>),
     >,
     session: ResMut<'w, ToolSessionState>,
 }
@@ -68,7 +83,7 @@ pub fn apply_start_move_object_requests(mut params: StartMoveObjectParams) {
             sprite,
             sort_bias,
             rotatable,
-        )) = params.movable.get(request.entity)
+        )) = params.movable_floor.get(request.entity)
         {
             crate::tools::cleanup_current_session(
                 &mut params.commands,
@@ -113,13 +128,77 @@ pub fn apply_start_move_object_requests(mut params: StartMoveObjectParams) {
                 .entity(request.entity)
                 .insert(PreviewSource { preview_entity });
 
-            params.session.active = Some(ActiveToolSession::Move(MoveToolSession {
-                source_entity: request.entity,
-                preview_entity,
-                original_world_pos: world_pos.0,
-                rotation_index,
-                awaiting_fresh_click: true,
-            }));
+            params.session.active = Some(ActiveToolSession::Move(MoveToolSession::Floor(
+                FloorMoveSession {
+                    source_entity: request.entity,
+                    preview_entity,
+                    original_world_pos: world_pos.0,
+                    rotation_index,
+                    awaiting_fresh_click: true,
+                },
+            )));
+        } else if let Ok((
+            placement,
+            prototype_id,
+            visual_offset,
+            sprite,
+            sort_bias,
+            rotatable,
+        )) = params.movable_wall.get(request.entity)
+        {
+            crate::tools::cleanup_current_session(
+                &mut params.commands,
+                &mut params.session,
+                crate::tools::ToolSessionEndReason::Replaced,
+            );
+
+            let _rotation_index = rotatable.map_or(0, |r| r.current);
+
+            let preview_entity = params
+                .commands
+                .spawn((
+                    Sprite {
+                        image: sprite.image.clone(),
+                        custom_size: sprite.custom_size,
+                        color: Color::srgba(0.65, 0.90, 1.0, 0.55),
+                        ..default()
+                    },
+                    WorldPos::default(),
+                    ProjectedPos::default(),
+                    FootAnchor::default(),
+                    *visual_offset,
+                    SortLayer::DragPreview,
+                    *sort_bias,
+                    ToolPreview,
+                    ToolPreviewKind::Move {
+                        source_entity: request.entity,
+                    },
+                    PlacementPreview { validation: None },
+                    NonInteractive,
+                    InteractionRole::ToolPreview,
+                    WallMovePreview,
+                    RuntimeOwned {
+                        owner: RuntimeOwner::ToolPreview,
+                    },
+                    Name::new(format!("WallMovePreview of {:?}", request.entity)),
+                ))
+                .id();
+
+            params
+                .commands
+                .entity(request.entity)
+                .insert(PreviewSource { preview_entity });
+
+            params.session.active = Some(ActiveToolSession::Move(MoveToolSession::WallMounted(
+                WallMoveSession {
+                    source_entity: request.entity,
+                    preview_entity,
+                    prototype_id: prototype_id.0.clone(),
+                    original_attachment: placement.attachment,
+                    current_attachment: None,
+                    awaiting_fresh_click: true,
+                },
+            )));
         }
     }
 }
@@ -132,17 +211,27 @@ pub(crate) struct MoveToolParams<'w, 's> {
     targets: Res<'w, PointerTargets>,
     gate: Res<'w, ToolInputGate>,
     actions: Res<'w, InputActionState>,
-    movable: Query<'w, 's, Entity, (With<Movable>, With<StoreObject>)>,
+    movable_floor: Query<'w, 's, Entity, (With<Movable>, With<StoreObject>)>,
+    movable_wall: Query<'w, 's, Entity, (With<WallMovable>, With<StoreObject>)>,
     ghost_positions: Query<
         'w,
         's,
-        (&'static mut WorldPos, &'static PlacementPreview),
+        (
+            &'static mut WorldPos,
+            &'static mut ProjectedPos,
+            &'static mut FootAnchor,
+            &'static mut VisualOffset,
+            &'static mut PlacementPreview,
+        ),
         (With<ToolPreview>, Without<StoreObject>),
     >,
     session: ResMut<'w, ToolSessionState>,
     committed: MessageWriter<'w, MoveObjectCommitted>,
     requests: MessageWriter<'w, StartMoveObjectRequested>,
     tool: ResMut<'w, ToolContext>,
+    catalog: Res<'w, crate::objects::prototypes::ObjectCatalog>,
+    wall_surfaces: Query<'w, 's, (Entity, &'static crate::store::WallSurface)>,
+    projection: Res<'w, crate::presentation::IsoProjection>,
 }
 
 pub fn move_tool_system(mut params: MoveToolParams) {
@@ -163,49 +252,123 @@ pub fn move_tool_system(mut params: MoveToolParams) {
     }
 
     if let Some(ActiveToolSession::Move(move_session)) = params.session.active.as_mut() {
-        // Reset freshness once button is fully released (and not in the release frame itself)
-        if !params.actions.pressed(InputAction::PrimaryClick)
-            && !params.actions.just_released(InputAction::PrimaryClick)
-        {
-            move_session.awaiting_fresh_click = false;
-        }
-
-        if let Ok((mut world_pos, preview)) =
-            params.ghost_positions.get_mut(move_session.preview_entity)
-        {
-            world_pos.0 = params.pointer.world_pos;
-
-            if params.gate.primary_world_click_released && !move_session.awaiting_fresh_click {
-                let is_valid = preview.validation.as_ref().is_some_and(|r| r.is_ok());
-                if is_valid {
-                    params.committed.write(MoveObjectCommitted {
-                        entity: move_session.source_entity,
-                        new_pos: world_pos.0,
-                        rotation: move_session.rotation_index,
-                    });
+        match move_session {
+            MoveToolSession::Floor(floor_session) => {
+                if !params.actions.pressed(InputAction::PrimaryClick)
+                    && !params.actions.just_released(InputAction::PrimaryClick)
+                {
+                    floor_session.awaiting_fresh_click = false;
                 }
-                crate::tools::cleanup_current_session(
-                    &mut params.commands,
-                    &mut params.session,
-                    if is_valid {
-                        crate::tools::ToolSessionEndReason::Committed
+
+                if let Ok((mut world_pos, _, _, _, preview)) =
+                    params.ghost_positions.get_mut(floor_session.preview_entity)
+                {
+                    world_pos.0 = params.pointer.world_pos;
+
+                    if params.gate.primary_world_click_released && !floor_session.awaiting_fresh_click
+                    {
+                        let is_valid = preview.validation.as_ref().is_some_and(|r| r.is_ok());
+                        if is_valid {
+                            params.committed.write(MoveObjectCommitted {
+                                entity: floor_session.source_entity,
+                                new_placement: ObjectPlacement::Floor {
+                                    world_pos: world_pos.0,
+                                    rotation_index: Some(floor_session.rotation_index),
+                                },
+                            });
+                        }
+                        crate::tools::cleanup_current_session(
+                            &mut params.commands,
+                            &mut params.session,
+                            if is_valid {
+                                crate::tools::ToolSessionEndReason::Committed
+                            } else {
+                                crate::tools::ToolSessionEndReason::Cancelled
+                            },
+                        );
+                    }
+                }
+            }
+            MoveToolSession::WallMounted(wall_session) => {
+                if !params.actions.pressed(InputAction::PrimaryClick)
+                    && !params.actions.just_released(InputAction::PrimaryClick)
+                {
+                    wall_session.awaiting_fresh_click = false;
+                }
+
+                if let Ok((
+                    mut world_pos,
+                    mut projected_pos,
+                    _foot_anchor,
+                    mut visual_offset,
+                    mut preview,
+                )) = params.ghost_positions.get_mut(wall_session.preview_entity)
+                {
+                    // Update preview placement
+                    let proto = params.catalog.prototypes.get(&wall_session.prototype_id);
+                    let wall_spec = proto.and_then(crate::objects::prototypes::wall_mounted_spec);
+
+                    if let Some(spec) = wall_spec {
+                        let attachment = crate::tools::build::find_wall_attachment_candidate(
+                            params.pointer.projected_pos,
+                            *params.projection,
+                            &params.wall_surfaces,
+                            spec.width * 0.5,
+                        );
+
+                        if let Some((valid_attachment, v_pos, _)) = attachment {
+                            world_pos.0 = v_pos;
+                            visual_offset.0 = crate::store::wall_surface_visual_offset(
+                                params.wall_surfaces.iter().find(|(_, s)| s.key == valid_attachment.segment_key).unwrap().1,
+                                *params.projection,
+                                valid_attachment.height_on_wall,
+                            );
+                            projected_pos.0 = crate::presentation::world_to_iso(v_pos, *params.projection);
+                            wall_session.current_attachment = Some(valid_attachment);
+                            preview.validation = Some(Ok(()));
+                        } else {
+                            wall_session.current_attachment = None;
+                            preview.validation = None;
+                        }
                     } else {
-                        crate::tools::ToolSessionEndReason::Cancelled
-                    },
-                );
+                        wall_session.current_attachment = None;
+                        preview.validation = None;
+                    }
+
+                    // Commit
+                    if params.gate.primary_world_click_released && !wall_session.awaiting_fresh_click
+                    {
+                        let is_valid = preview.validation.as_ref().is_some_and(|r| r.is_ok());
+                        if is_valid && let Some(attachment) = wall_session.current_attachment {
+                            params.committed.write(MoveObjectCommitted {
+                                entity: wall_session.source_entity,
+                                new_placement: ObjectPlacement::WallMounted { attachment },
+                            });
+                        }
+
+                        crate::tools::cleanup_current_session(
+                            &mut params.commands,
+                            &mut params.session,
+                            if is_valid {
+                                crate::tools::ToolSessionEndReason::Committed
+                            } else {
+                                crate::tools::ToolSessionEndReason::Cancelled
+                            },
+                        );
+                    }
+                }
             }
         }
         return;
     }
 
     // Start move via click
-    if params.gate.primary_world_press_started
-        && let Some(entity) = params
-            .tool
-            .hovered_entity
-            .filter(|entity| params.movable.get(*entity).is_ok())
-    {
-        params.requests.write(StartMoveObjectRequested { entity });
+    if params.gate.primary_world_press_started {
+        if let Some(entity) = params.tool.hovered_entity {
+            if params.movable_floor.get(entity).is_ok() || params.movable_wall.get(entity).is_ok() {
+                params.requests.write(StartMoveObjectRequested { entity });
+            }
+        }
     }
 }
 

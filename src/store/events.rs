@@ -9,8 +9,6 @@ pub enum DomainEvent {
     },
     ObjectMoved {
         id: StableObjectId,
-        from: Vec2,
-        to: Vec2,
     },
     ObjectRotated {
         id: StableObjectId,

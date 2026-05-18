@@ -41,9 +41,7 @@ pub struct BuildObjectCommand {
 #[derive(Debug, Clone)]
 pub struct MoveObjectCommand {
     pub object_id: StableObjectId,
-    pub from: Vec2,
-    pub to: Vec2,
-    pub rotation_index: Option<usize>,
+    pub new_placement: ObjectPlacement,
 }
 
 #[derive(Debug, Clone)]
@@ -154,10 +152,17 @@ pub struct DomainCommandApplyParams<'w, 's> {
                 ),
                 Without<crate::tools::ToolPreview>,
             >,
-            Query<'w, 's, (Entity, &'static crate::objects::components::ObjectStableId)>,
+            Query<
+                'w,
+                's,
+                (
+                    Entity,
+                    &'static crate::objects::components::ObjectStableId,
+                    &'static crate::objects::components::ObjectPrototypeId,
+                ),
+            >,
             Query<'w, 's, &'static crate::store::WallSurface>,
-            Query<'w, 's, &'static Wallprint>,
-        ),
+            Query<'w, 's, (&'static Wallprint, &'static crate::objects::components::ObjectStableId)>,        ),
     >,
 }
 
@@ -176,7 +181,7 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
     } = params;
 
     let mut lookup = std::collections::HashMap::new();
-    for (entity, stable_id) in &set.p2() {
+    for (entity, stable_id, _) in &set.p2() {
         lookup.insert(stable_id.0, entity);
     }
 
@@ -193,7 +198,15 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
             ),
             DomainCommand::MoveObject(c) => {
                 if let Some(&entity) = lookup.get(&c.object_id) {
-                    apply_move_object(c, entity, &mut commands, &mut set, &world_bounds, &store)
+                    apply_move_object(
+                        c,
+                        entity,
+                        &mut commands,
+                        &mut set,
+                        &world_bounds,
+                        &store,
+                        &catalog,
+                    )
                 } else {
                     DomainCommandResult::Rejected {
                         reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id },
@@ -255,9 +268,15 @@ fn apply_build_object(
             ),
             Without<crate::tools::ToolPreview>,
         >,
-        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<
+            (
+                Entity,
+                &crate::objects::components::ObjectStableId,
+                &crate::objects::components::ObjectPrototypeId,
+            ),
+        >,
         Query<&crate::store::WallSurface>,
-        Query<&Wallprint>,
+        Query<(&Wallprint, &crate::objects::components::ObjectStableId)>,
     )>,
 ) -> DomainCommandResult {
     let Some(proto) = catalog.prototypes.get(&c.prototype_id) else {
@@ -347,7 +366,7 @@ fn apply_build_object(
                 wall_occupancy_kind_for_prototype(proto),
             );
             let mounted_objects = set.p4();
-            for existing in mounted_objects.iter() {
+            for (existing, _) in mounted_objects.iter() {
                 if wallprints_conflict(&new_wallprint, existing) {
                     return DomainCommandResult::Rejected {
                         reason: DomainCommandRejectReason::WallMountedOverlap,
@@ -403,66 +422,154 @@ fn apply_move_object(
             ),
             Without<crate::tools::ToolPreview>,
         >,
-        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<(Entity, &crate::objects::components::ObjectStableId, &crate::objects::components::ObjectPrototypeId)>,
         Query<&crate::store::WallSurface>,
-        Query<&Wallprint>,
+        Query<(&Wallprint, &crate::objects::components::ObjectStableId)>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
+    catalog: &crate::objects::prototypes::ObjectCatalog,
 ) -> DomainCommandResult {
-    // 1. Get current footprint for validation
-    let footprints = set.p0();
-    let Ok((_, _, footprint, _)) = footprints.get(entity) else {
-        return DomainCommandResult::Rejected {
-            reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id },
-        };
-    };
-    let current_footprint = footprint.clone();
+    match c.new_placement {
+        ObjectPlacement::Floor {
+            world_pos,
+            rotation_index,
+        } => {
+            // 1. Get current footprint for validation
+            let footprints = set.p0();
+            let Ok((_, _, footprint, _)) = footprints.get(entity) else {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PlacementInvalid,
+                };
+            };
+            let current_footprint = footprint.clone();
 
-    // 2. Revalidate position
-    let validation = crate::placement::validate_placement(
-        world_bounds,
-        store,
-        &footprints,
-        &current_footprint,
-        c.to,
-        crate::placement::PlacementValidationOptions {
-            ignore_entity: Some(entity),
-        },
-    );
+            // 2. Revalidate position
+            let validation = crate::placement::validate_placement(
+                world_bounds,
+                store,
+                &footprints,
+                &current_footprint,
+                world_pos,
+                crate::placement::PlacementValidationOptions {
+                    ignore_entity: Some(entity),
+                },
+            );
 
-    if let Err(_e) = validation {
-        return DomainCommandResult::Rejected {
-            reason: DomainCommandRejectReason::PlacementInvalid,
-        };
-    }
+            if let Err(_e) = validation {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PlacementInvalid,
+                };
+            }
 
-    // 3. Apply changes (Pos + Rotation)
-    if let Ok(mut e) = commands.get_entity(entity) {
-        e.insert(crate::objects::components::WorldPos(c.to));
-    }
+            // 3. Apply changes (Pos + Rotation)
+            if let Ok(mut e) = commands.get_entity(entity) {
+                e.insert(crate::objects::components::WorldPos(world_pos));
+                e.insert(crate::objects::components::ObjectPlacementComponent {
+                    placement: c.new_placement,
+                });
+            }
 
-    if let Some(new_rotation) = c.rotation_index {
-        let mut rotatables = set.p1();
-        if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) =
-            rotatables.get_mut(entity)
-            && new_rotation < rotatable.variants.len()
-        {
-            rotatable.current = new_rotation;
-            let variant = &rotatable.variants[new_rotation];
-            sprite.image = variant.sprite.clone();
-            *fp = variant.footprint.clone();
-            anchor.0 = variant.foot_anchor;
-            offset.0 = variant.visual_offset;
+            if let Some(new_rotation) = rotation_index {
+                let mut rotatables = set.p1();
+                if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) =
+                    rotatables.get_mut(entity)
+                    && new_rotation < rotatable.variants.len()
+                {
+                    rotatable.current = new_rotation;
+                    let variant = &rotatable.variants[new_rotation];
+                    sprite.image = variant.sprite.clone();
+                    *fp = variant.footprint.clone();
+                    anchor.0 = variant.foot_anchor;
+                    offset.0 = variant.visual_offset;
+                }
+            }
+        }
+        ObjectPlacement::WallMounted { attachment } => {
+            // 1. Verify object is wall-mounted and get its prototype
+            let (prototype_id, stable_id) = {
+                let stable_ids = set.p2();
+                let Ok((_, sid, pid)) = stable_ids.get(entity) else {
+                    return DomainCommandResult::Rejected {
+                        reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id },
+                    };
+                };
+                (pid.0.clone(), sid.0)
+            };
+
+            let proto = catalog.prototypes.get(&prototype_id).ok_or_else(|| {
+                DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PrototypeMissing { id: prototype_id },
+                }
+            });
+
+            let proto = match proto {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+
+            let spec = crate::objects::prototypes::wall_mounted_spec(proto).ok_or_else(|| {
+                DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PrototypeNotWallMounted,
+                }
+            });
+
+            let spec = match spec {
+                Ok(s) => s,
+                Err(e) => return e,
+            };
+
+            // 2. Derive new wallprint
+            let occupancy_kind = crate::objects::prototypes::wall_occupancy_kind_for_prototype(proto);
+            let new_wallprint = derive_wallprint(attachment, spec.width, spec.height, occupancy_kind);
+
+            // 3. Validate against other wallprints (ignoring self)
+            {
+                let wallprints = set.p4();
+                for (existing_print, existing_id) in wallprints.iter() {
+                    if existing_id.0 != stable_id && wallprints_conflict(&new_wallprint, existing_print)
+                    {
+                        return DomainCommandResult::Rejected {
+                            reason: DomainCommandRejectReason::WallMountedOverlap,
+                        };
+                    }
+                }
+            }
+
+            // 4. Update components
+            if let Ok(mut e) = commands.get_entity(entity) {
+                let bounds = new_wallprint.rects[0];
+                e.insert((
+                    crate::objects::components::WallMountedPlacement { attachment },
+                    crate::objects::components::WallMounted {
+                        attachment,
+                        width: spec.width,
+                        height: spec.height,
+                    },
+                    new_wallprint,
+                    crate::objects::components::WallMountedBounds {
+                        segment_key: bounds.segment_key,
+                        offset_min: bounds.offset_min,
+                        offset_max: bounds.offset_max,
+                        height_min: bounds.height_min,
+                        height_max: bounds.height_max,
+                    },
+                    crate::objects::components::ObjectPlacementComponent {
+                        placement: c.new_placement,
+                    },
+                ));
+
+                // Update WorldPos for presentation consistency
+                if let Some(hit) = set.p3().iter().find(|s| s.key == attachment.segment_key) {
+                    let v_pos = crate::store::wall_surface_world_pos(hit, attachment.offset_along_segment);
+                    e.insert(crate::objects::components::WorldPos(v_pos));
+                }
+            }
         }
     }
 
     DomainCommandResult::Applied {
-        events: vec![crate::store::events::DomainEvent::ObjectMoved {
-            id: c.object_id,
-            from: c.from,
-            to: c.to,
-        }],
+        events: vec![crate::store::events::DomainEvent::ObjectMoved { id: c.object_id }],
     }
 }
 
@@ -490,9 +597,15 @@ fn apply_rotate_object(
             ),
             Without<crate::tools::ToolPreview>,
         >,
-        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<
+            (
+                Entity,
+                &crate::objects::components::ObjectStableId,
+                &crate::objects::components::ObjectPrototypeId,
+            ),
+        >,
         Query<&crate::store::WallSurface>,
-        Query<&Wallprint>,
+        Query<(&Wallprint, &crate::objects::components::ObjectStableId)>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
@@ -684,6 +797,7 @@ mod tests {
 
         app.world_mut().spawn((
             crate::objects::components::ObjectStableId(object_id),
+            crate::objects::components::ObjectPrototypeId(crate::objects::prototypes::BuildObjectId::new("test.dummy")),
             crate::objects::components::WorldPos(Vec2::ZERO),
             crate::objects::components::StoreObject,
         ));
@@ -926,5 +1040,254 @@ mod tests {
         let mut query = world.query::<&crate::objects::components::ObjectStableId>();
         let found = query.iter(world).any(|id| id.0 == new_id);
         assert!(!found, "overlapping wall-mounted object should be rejected");
+    }
+
+    #[test]
+    fn test_wall_mounted_move_valid() {
+        let mut app = setup_test_app();
+        let object_id = StableObjectId(7000);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: 0, y: 0 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        app.world_mut().spawn(crate::store::WallSurface {
+            key: segment_key,
+            start: Vec2::new(0.0, 0.0),
+            end: Vec2::new(128.0, 0.0),
+            length: 128.0,
+            height: 192.0,
+            thickness: 8.0,
+            normal: Vec2::Y,
+        });
+
+        let attachment_start = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 32.0,
+            height_on_wall: 48.0,
+        };
+        
+        let entity = app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(object_id),
+            crate::objects::components::ObjectPrototypeId(BuildObjectId::new("wall.decor.placeholder")),
+            crate::objects::components::StoreObject,
+            crate::objects::components::WallMountedPlacement { attachment: attachment_start },
+            crate::objects::components::WallMounted { attachment: attachment_start, width: 64.0, height: 64.0 },
+            crate::objects::components::Wallprint {
+                rects: vec![crate::objects::components::derive_wallprint_rect(
+                    attachment_start,
+                    64.0,
+                    64.0,
+                    crate::objects::components::WallOccupancyKind::DecorativeOverlay,
+                )],
+            },
+        )).id();
+
+        let attachment_end = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 96.0,
+            height_on_wall: 48.0,
+        };
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                object_id,
+                new_placement: crate::objects::components::ObjectPlacement::WallMounted { attachment: attachment_end },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        let mounted = world.get::<crate::objects::components::WallMountedPlacement>(entity).unwrap();
+        assert_eq!(mounted.attachment, attachment_end, "Object should have moved");
+    }
+
+    #[test]
+    fn test_wall_mounted_move_ignores_self_overlap() {
+        let mut app = setup_test_app();
+        let object_id = StableObjectId(7001);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: 0, y: 0 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        app.world_mut().spawn(crate::store::WallSurface {
+            key: segment_key,
+            start: Vec2::new(0.0, 0.0),
+            end: Vec2::new(128.0, 0.0),
+            length: 128.0,
+            height: 192.0,
+            thickness: 8.0,
+            normal: Vec2::Y,
+        });
+
+        let attachment_start = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 32.0,
+            height_on_wall: 48.0,
+        };
+        
+        let entity = app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(object_id),
+            crate::objects::components::ObjectPrototypeId(BuildObjectId::new("wall.decor.placeholder")),
+            crate::objects::components::StoreObject,
+            crate::objects::components::WallMountedPlacement { attachment: attachment_start },
+            crate::objects::components::WallMounted { attachment: attachment_start, width: 64.0, height: 64.0 },
+            crate::objects::components::Wallprint {
+                rects: vec![crate::objects::components::derive_wallprint_rect(
+                    attachment_start,
+                    64.0,
+                    64.0,
+                    crate::objects::components::WallOccupancyKind::DecorativeOverlay,
+                )],
+            },
+        )).id();
+
+        // Move to an overlapping position
+        let attachment_end = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 40.0,
+            height_on_wall: 48.0,
+        };
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                object_id,
+                new_placement: crate::objects::components::ObjectPlacement::WallMounted { attachment: attachment_end },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        let mounted = world.get::<crate::objects::components::WallMountedPlacement>(entity).unwrap();
+        assert_eq!(mounted.attachment, attachment_end, "Object should have moved, ignoring self overlap");
+    }
+
+    #[test]
+    fn test_wall_mounted_move_rejects_overlap() {
+        let mut app = setup_test_app();
+        let existing_id = StableObjectId(7002);
+        let moving_id = StableObjectId(7003);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: 0, y: 0 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        app.world_mut().spawn(crate::store::WallSurface {
+            key: segment_key,
+            start: Vec2::new(0.0, 0.0),
+            end: Vec2::new(256.0, 0.0),
+            length: 256.0,
+            height: 192.0,
+            thickness: 8.0,
+            normal: Vec2::Y,
+        });
+
+        let attachment_existing = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 128.0,
+            height_on_wall: 48.0,
+        };
+        
+        app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(existing_id),
+            crate::objects::components::StoreObject,
+            crate::objects::components::Wallprint {
+                rects: vec![crate::objects::components::derive_wallprint_rect(
+                    attachment_existing,
+                    64.0,
+                    64.0,
+                    crate::objects::components::WallOccupancyKind::DecorativeOverlay,
+                )],
+            },
+        ));
+
+        let attachment_start = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 32.0,
+            height_on_wall: 48.0,
+        };
+
+        let entity_moving = app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(moving_id),
+            crate::objects::components::ObjectPrototypeId(BuildObjectId::new("wall.decor.placeholder")),
+            crate::objects::components::StoreObject,
+            crate::objects::components::WallMountedPlacement { attachment: attachment_start },
+            crate::objects::components::WallMounted { attachment: attachment_start, width: 64.0, height: 64.0 },
+            crate::objects::components::Wallprint {
+                rects: vec![crate::objects::components::derive_wallprint_rect(
+                    attachment_start,
+                    64.0,
+                    64.0,
+                    crate::objects::components::WallOccupancyKind::DecorativeOverlay,
+                )],
+            },
+        )).id();
+
+        let attachment_end = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 110.0, // Overlaps with 128.0 (width 64 means covers 96 to 160)
+            height_on_wall: 48.0,
+        };
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                object_id: moving_id,
+                new_placement: crate::objects::components::ObjectPlacement::WallMounted { attachment: attachment_end },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        let mounted = world.get::<crate::objects::components::WallMountedPlacement>(entity_moving).unwrap();
+        assert_eq!(mounted.attachment, attachment_start, "Object should not have moved due to overlap");
+    }
+
+    #[test]
+    fn test_floor_to_wall_conversion_rejected() {
+        let mut app = setup_test_app();
+        let object_id = StableObjectId(7004);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: 0, y: 0 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        
+        let entity = app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(object_id),
+            crate::objects::components::ObjectPrototypeId(BuildObjectId::new("fixture.shelf.basic")),
+            crate::objects::components::StoreObject,
+            crate::objects::components::WorldPos(Vec2::ZERO),
+            crate::objects::components::Footprint::rectangle(Vec2::splat(10.0)),
+        )).id();
+
+        let attachment_end = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 64.0,
+            height_on_wall: 48.0,
+        };
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                object_id,
+                new_placement: crate::objects::components::ObjectPlacement::WallMounted { attachment: attachment_end },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        assert!(world.get::<crate::objects::components::WallMountedPlacement>(entity).is_none(), "Floor object should not be converted to WallMounted");
     }
 }

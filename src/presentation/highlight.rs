@@ -51,8 +51,16 @@ pub(crate) struct HighlightIntentParams<'w, 's> {
     tool: Res<'w, ToolContext>,
     session: Res<'w, crate::tools::ToolSessionState>,
     selection: Res<'w, SelectionState>,
-    interactive:
-        Query<'w, 's, (Option<&'static Movable>, Option<&'static Deletable>), With<Interactive>>,
+    interactive: Query<
+        'w,
+        's,
+        (
+            Option<&'static Movable>,
+            Option<&'static crate::objects::components::WallMovable>,
+            Option<&'static Deletable>,
+        ),
+        With<Interactive>,
+    >,
     state: ResMut<'w, HighlightRuntimeState>,
 }
 
@@ -61,12 +69,18 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
     let current_hovered = params.tool.hovered_entity;
     let current_selected = params.selection.primary;
     let current_move_source = match &params.session.active {
-        Some(ActiveToolSession::Move(session)) => Some(session.source_entity),
+        Some(ActiveToolSession::Move(session)) => match session {
+            crate::tools::MoveToolSession::Floor(s) => Some(s.source_entity),
+            crate::tools::MoveToolSession::WallMounted(s) => Some(s.source_entity),
+        },
         _ => None,
     };
     let current_preview = match &params.session.active {
         Some(ActiveToolSession::Build(session)) => Some(session.preview_entity()),
-        Some(ActiveToolSession::Move(session)) => Some(session.preview_entity),
+        Some(ActiveToolSession::Move(session)) => match session {
+            crate::tools::MoveToolSession::Floor(s) => Some(s.preview_entity),
+            crate::tools::MoveToolSession::WallMounted(s) => Some(s.preview_entity),
+        },
         Some(ActiveToolSession::Expansion(_)) | None => None,
     };
 
@@ -101,8 +115,7 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
                     .interactive
                     .get(hovered)
                     .ok()
-                    .and_then(|(movable, _)| movable)
-                    .is_some()
+                    .is_some_and(|(movable, wall_movable, _)| movable.is_some() || wall_movable.is_some())
                 {
                     Some(HighlightKind::Hover)
                 } else {
@@ -114,7 +127,7 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
                     .interactive
                     .get(hovered)
                     .ok()
-                    .and_then(|(_, deletable)| deletable)
+                    .and_then(|(_, _, deletable)| deletable)
                     .is_some()
                 {
                     Some(HighlightKind::DeleteDanger)

@@ -110,23 +110,31 @@ pub fn unified_tool_validation_system(
                 }
             }
         },
-        ActiveToolSession::Move(move_session) => {
-            if let Ok((mut preview, pos, Some(footprint), _)) =
-                previews.get_mut(move_session.preview_entity)
-            {
-                let result = crate::placement::validate_placement(
-                    &world_bounds,
-                    &store_area,
-                    &footprints,
-                    footprint,
-                    pos.0,
-                    crate::placement::PlacementValidationOptions {
-                        ignore_entity: Some(move_session.source_entity),
-                    },
-                );
-                preview.validation = Some(result);
+        ActiveToolSession::Move(move_session) => match move_session {
+            crate::tools::MoveToolSession::Floor(s) => {
+                if let Ok((mut preview, pos, Some(footprint), _)) = previews.get_mut(s.preview_entity) {
+                    let result = crate::placement::validate_placement(
+                        &world_bounds,
+                        &store_area,
+                        &footprints,
+                        footprint,
+                        pos.0,
+                        crate::placement::PlacementValidationOptions {
+                            ignore_entity: Some(s.source_entity),
+                        },
+                    );
+                    preview.validation = Some(result);
+                }
             }
-        }
+            crate::tools::MoveToolSession::WallMounted(s) => {
+                if let Ok((mut preview, _, _, _)) = previews.get_mut(s.preview_entity) {
+                    preview.validation = Some(match s.current_attachment {
+                        Some(_) => Ok(()),
+                        None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
+                    });
+                }
+            }
+        },
         _ => {}
     }
 }
@@ -205,9 +213,13 @@ pub fn cleanup_current_session(
             commands.entity(s.preview_entity()).try_despawn();
         }
         ActiveToolSession::Move(s) => {
-            commands.entity(s.preview_entity).try_despawn();
+            let (preview_entity, source_entity) = match s {
+                crate::tools::MoveToolSession::Floor(f) => (f.preview_entity, f.source_entity),
+                crate::tools::MoveToolSession::WallMounted(w) => (w.preview_entity, w.source_entity),
+            };
+            commands.entity(preview_entity).try_despawn();
             commands
-                .entity(s.source_entity)
+                .entity(source_entity)
                 .try_remove::<PreviewSource>();
         }
         ActiveToolSession::Expansion(_) => {}
@@ -253,13 +265,6 @@ pub fn handle_object_action_requests(mut params: ObjectActionRequestParams) {
                 }
             }
             ObjectActionKind::Move => {
-                if params.wall_mounted.get(request.entity).is_ok() {
-                    warn!(
-                        "Move action ignored for wall-mounted object {:?}; wall-mounted move is not implemented yet",
-                        request.entity
-                    );
-                    continue;
-                }
                 // Ensure tool is active
                 params.tool_activation.write(ActivateToolRequested {
                     mode: ToolMode::Move,
@@ -298,7 +303,6 @@ pub(crate) struct ObjectActionRequestParams<'w, 's> {
     requests: MessageReader<'w, 's, ObjectActionRequested>,
     mode: Res<'w, State<ToolMode>>,
     selection: ResMut<'w, SelectionState>,
-    wall_mounted: Query<'w, 's, (), With<WallMounted>>,
     move_requests: MessageWriter<'w, StartMoveObjectRequested>,
     rotate_requests: MessageWriter<'w, RotateObjectRequested>,
     modal_requests: MessageWriter<'w, crate::ui::ModalRequest>,
@@ -308,8 +312,7 @@ pub(crate) struct ObjectActionRequestParams<'w, 's> {
 #[derive(Message, Debug, Clone, Copy)]
 pub struct MoveObjectCommitted {
     pub entity: Entity,
-    pub new_pos: Vec2,
-    pub rotation: usize,
+    pub new_placement: crate::objects::components::ObjectPlacement,
 }
 
 #[derive(Message, Debug, Clone, Copy)]
@@ -340,19 +343,15 @@ pub fn convert_committed_requests_to_commands(
     mut deletes: MessageReader<DeleteObjectRequested>,
     mut builds: MessageReader<BuildObjectRequested>,
     stable_ids: Query<&ObjectStableId>,
-    world_positions: Query<&WorldPos>,
+    _world_positions: Query<&WorldPos>,
 ) {
     for movement in moves.read() {
-        if let Ok(stable_id) = stable_ids.get(movement.entity)
-            && let Ok(current_pos) = world_positions.get(movement.entity)
-        {
+        if let Ok(stable_id) = stable_ids.get(movement.entity) {
             queue
                 .commands
                 .push_back(DomainCommand::MoveObject(MoveObjectCommand {
                     object_id: stable_id.0,
-                    from: current_pos.0,
-                    to: movement.new_pos,
-                    rotation_index: Some(movement.rotation),
+                    new_placement: movement.new_placement,
                 }));
         }
     }

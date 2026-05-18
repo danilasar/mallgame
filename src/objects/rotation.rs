@@ -78,7 +78,9 @@ pub fn handle_rotate_requests(
             }
 
             // Update session state so commit uses the new rotation
-            if let Some(crate::tools::ActiveToolSession::Move(s)) = session.active.as_mut() {
+            if let Some(crate::tools::ActiveToolSession::Move(crate::tools::MoveToolSession::Floor(s))) =
+                session.active.as_mut()
+            {
                 if s.source_entity == request.entity {
                     s.rotation_index = new_index;
                 }

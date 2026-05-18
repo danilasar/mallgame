@@ -25,7 +25,10 @@ impl ActiveToolSession {
     pub fn preview_entity(&self) -> Option<Entity> {
         match self {
             Self::Build(s) => Some(s.preview_entity()),
-            Self::Move(s) => Some(s.preview_entity),
+            Self::Move(s) => match s {
+                MoveToolSession::Floor(s) => Some(s.preview_entity),
+                MoveToolSession::WallMounted(s) => Some(s.preview_entity),
+            },
             Self::Expansion(_) => None,
         }
     }
@@ -64,12 +67,29 @@ pub struct WallMountedBuildSession {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct MoveToolSession {
+pub enum MoveToolSession {
+    Floor(FloorMoveSession),
+    WallMounted(WallMoveSession),
+}
+
+#[derive(Debug, Clone)]
+pub struct FloorMoveSession {
     pub source_entity: Entity,
     pub preview_entity: Entity,
+    #[allow(dead_code)]
     pub original_world_pos: Vec2,
     pub rotation_index: usize,
+    pub awaiting_fresh_click: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct WallMoveSession {
+    pub source_entity: Entity,
+    pub preview_entity: Entity,
+    pub prototype_id: BuildObjectId,
+    #[allow(dead_code)]
+    pub original_attachment: crate::objects::components::WallAttachmentPoint,
+    pub current_attachment: Option<crate::objects::components::WallAttachmentPoint>,
     pub awaiting_fresh_click: bool,
 }
 

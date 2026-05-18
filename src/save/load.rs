@@ -408,6 +408,12 @@ mod tests {
             &WallMountedBounds,
             &ObjectPlacementComponent,
             Option<&Footprint>,
+            Option<&crate::objects::components::BlocksPlacement>,
+            Option<&crate::objects::components::Movable>,
+            Option<&crate::objects::components::WallMovable>,
+            &crate::objects::components::Selectable,
+            &crate::objects::components::Inspectable,
+            &crate::objects::components::Deletable,
             &StoreObject,
         )>();
         let found = query.iter(world).any(
@@ -419,6 +425,10 @@ mod tests {
                 bounds,
                 placement,
                 footprint,
+                blocks_placement,
+                movable,
+                wall_movable,
+                _, _, _,
                 _store_object,
             )| {
                 sid.0 == StableObjectId(3001)
@@ -428,6 +438,9 @@ mod tests {
                     && wallprint.rects[0].segment_key == segment_key
                     && bounds.segment_key == segment_key
                     && footprint.is_none()
+                    && blocks_placement.is_none()
+                    && movable.is_none()
+                    && wall_movable.is_some()
                     && matches!(
                         placement.placement,
                         ObjectPlacement::WallMounted { attachment }
