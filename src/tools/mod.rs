@@ -86,7 +86,7 @@ pub fn unified_tool_validation_system(
                     pos.0,
                     crate::placement::PlacementValidationOptions::default(),
                 );
-                preview.validation = Some(result.map_err(|e| format!("{:?}", e)));
+                preview.validation = Some(result);
             }
         }
         ActiveToolSession::Move(move_session) => {
@@ -102,7 +102,7 @@ pub fn unified_tool_validation_system(
                         ignore_entity: Some(move_session.source_entity),
                     },
                 );
-                preview.validation = Some(result.map_err(|e| format!("{:?}", e)));
+                preview.validation = Some(result);
             }
         }
         _ => {}

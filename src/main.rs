@@ -156,7 +156,7 @@ fn setup(
     ];
 
     for (proto_id, pos) in prototypes {
-        let _ = spawn_store_object_from_prototype(
+        if let Err(e) = spawn_store_object_from_prototype(
             &mut commands,
             &asset_server,
             &catalog,
@@ -166,6 +166,8 @@ fn setup(
                 world_pos: pos,
                 rotation_index: Some(0),
             },
-        );
+        ) {
+            warn!("Failed to spawn startup object: {}", e);
+        }
     }
 }

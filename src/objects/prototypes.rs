@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use std::error::Error;
+use std::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -249,14 +251,31 @@ pub struct SpawnStoreObjectParams {
     pub rotation_index: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnObjectError {
+    UnknownPrototype(BuildObjectId),
+}
+
+impl fmt::Display for SpawnObjectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SpawnObjectError::UnknownPrototype(id) => {
+                write!(f, "Unknown prototype ID: {:?}", id)
+            }
+        }
+    }
+}
+
+impl Error for SpawnObjectError {}
+
 pub fn spawn_store_object_from_prototype(
     commands: &mut Commands,
     asset_server: &AssetServer,
     catalog: &ObjectCatalog,
     params: SpawnStoreObjectParams,
-) -> Result<Entity, String> {
+) -> Result<Entity, SpawnObjectError> {
     let Some(proto) = catalog.prototypes.get(&params.prototype_id) else {
-        return Err(format!("Unknown prototype ID: {:?}", params.prototype_id));
+        return Err(SpawnObjectError::UnknownPrototype(params.prototype_id));
     };
 
     let image = asset_server.load(&proto.visuals.asset_path);

@@ -41,8 +41,6 @@ pub struct LoadReport {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum SaveLoadError {
-    IoError(String),
-    ParseError(String),
     UnsupportedVersion(u32),
     FatalValidationError(Vec<LoadIssue>),
 }

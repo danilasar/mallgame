@@ -19,7 +19,7 @@ pub enum ToolPreviewKind {
 
 #[derive(Component, Debug, Clone)]
 pub struct PlacementPreview {
-    pub validation: Option<Result<(), String>>,
+    pub validation: Option<Result<(), crate::store::PlacementInvalidReason>>,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
