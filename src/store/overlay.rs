@@ -63,13 +63,15 @@ fn update_store_chunk_overlays(mut params: StoreOverlayParams) {
     for coord in store.owned_chunks.keys().copied() {
         spawn_chunk_outline(
             &mut params.commands,
-            store,
-            coord,
-            StoreChunkOverlayKind::Owned,
-            Color::srgba(1.0, 1.0, 1.0, 0.25),
-            2.0,
-            SortLayer::StoreOverlay.base_z(),
-            *params.projection,
+            ChunkOutlineSpec {
+                store,
+                coord,
+                kind: StoreChunkOverlayKind::Owned,
+                color: Color::srgba(1.0, 1.0, 1.0, 0.25),
+                thickness: 2.0,
+                z: SortLayer::StoreOverlay.base_z(),
+                projection: *params.projection,
+            },
         );
     }
 
@@ -105,13 +107,15 @@ fn update_store_chunk_overlays(mut params: StoreOverlayParams) {
         };
         spawn_chunk_outline(
             &mut params.commands,
-            store,
-            coord,
-            kind,
-            color,
-            thickness,
-            z,
-            *params.projection,
+            ChunkOutlineSpec {
+                store,
+                coord,
+                kind,
+                color,
+                thickness,
+                z,
+                projection: *params.projection,
+            },
         );
     }
 }
@@ -134,18 +138,18 @@ fn available_expansion_chunks(world: &WorldBounds, store: &StoreArea) -> Vec<Sto
     valid
 }
 
-#[allow(clippy::too_many_arguments)]
-fn spawn_chunk_outline(
-    commands: &mut Commands,
-    store: &StoreArea,
+struct ChunkOutlineSpec<'a> {
+    store: &'a StoreArea,
     coord: StoreChunkCoord,
     kind: StoreChunkOverlayKind,
     color: Color,
     thickness: f32,
     z: f32,
     projection: IsoProjection,
-) {
-    let rect = store.chunk_rect(coord);
+}
+
+fn spawn_chunk_outline(commands: &mut Commands, spec: ChunkOutlineSpec<'_>) {
+    let rect = spec.store.chunk_rect(spec.coord);
     let points = [
         rect.min,
         Vec2::new(rect.max.x, rect.min.y),
@@ -159,34 +163,34 @@ fn spawn_chunk_outline(
         .zip(points.iter().copied().cycle().skip(1))
         .take(points.len())
     {
-        let pa = world_to_iso(a, projection);
-        let pb = world_to_iso(b, projection);
+        let pa = world_to_iso(a, spec.projection);
+        let pb = world_to_iso(b, spec.projection);
         let delta = pb - pa;
         let length = delta.length();
         if length <= 0.1 {
             continue;
         }
         let mid = (pa + pb) * 0.5;
-        let owner = if kind == StoreChunkOverlayKind::Owned {
+        let owner = if spec.kind == StoreChunkOverlayKind::Owned {
             RuntimeOwner::StoreOverlay
         } else {
             RuntimeOwner::ExpansionOverlay
         };
 
         commands.spawn((
-            Sprite::from_color(color, Vec2::new(length, thickness)),
+            Sprite::from_color(spec.color, Vec2::new(length, spec.thickness)),
             Transform {
-                translation: Vec3::new(mid.x, mid.y, z),
+                translation: Vec3::new(mid.x, mid.y, spec.z),
                 rotation: Quat::from_rotation_z(delta.y.atan2(delta.x)),
                 ..default()
             },
             Visibility::Visible,
-            StoreChunkOverlay { coord, kind },
+            StoreChunkOverlay { coord: spec.coord, kind: spec.kind },
             StoreChunkOverlaySegment,
             InteractionRole::Overlay,
             RuntimeOwned { owner },
             NonInteractive,
-            Name::new(format!("StoreChunkOverlay {:?} {:?}", kind, coord)),
+            Name::new(format!("StoreChunkOverlay {:?} {:?}", spec.kind, spec.coord)),
         ));
     }
 }

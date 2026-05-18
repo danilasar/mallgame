@@ -23,6 +23,7 @@ pub use selection::*;
 pub use session::*;
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
@@ -223,49 +224,43 @@ pub enum ObjectActionOrigin {
 }
 
 pub fn handle_object_action_requests(
-    mut requests: MessageReader<ObjectActionRequested>,
-    mode: Res<State<ToolMode>>,
-    mut selection: ResMut<SelectionState>,
-    mut move_requests: MessageWriter<StartMoveObjectRequested>,
-    mut rotate_requests: MessageWriter<RotateObjectRequested>,
-    mut modal_requests: MessageWriter<crate::ui::ModalRequest>,
-    mut tool_activation: MessageWriter<ActivateToolRequested>,
+    mut params: ObjectActionRequestParams,
 ) {
-    for request in requests.read() {
+    for request in params.requests.read() {
         info!("ObjectActionRequested: {:?}", request);
         match request.action {
             ObjectActionKind::Inspect => {
-                selection.primary = Some(request.entity);
+                params.selection.primary = Some(request.entity);
             }
             ObjectActionKind::Deselect => {
-                if selection.primary == Some(request.entity) {
-                    selection.primary = None;
+                if params.selection.primary == Some(request.entity) {
+                    params.selection.primary = None;
                 }
             }
             ObjectActionKind::Move => {
                 // Ensure tool is active
-                tool_activation.write(ActivateToolRequested {
+                params.tool_activation.write(ActivateToolRequested {
                     mode: ToolMode::Move,
                     kind: ToolActivationKind::Replace,
                 });
-                move_requests.write(StartMoveObjectRequested {
+                params.move_requests.write(StartMoveObjectRequested {
                     entity: request.entity,
                 });
             }
             ObjectActionKind::Rotate => {
-                rotate_requests.write(RotateObjectRequested {
+                params.rotate_requests.write(RotateObjectRequested {
                     entity: request.entity,
                     steps: 1,
                 });
                 // NEW: In Move mode, clicking Rotate also starts the move session (picks up the object).
-                if *mode.get() == ToolMode::Move {
-                    move_requests.write(StartMoveObjectRequested {
+                if *params.mode.get() == ToolMode::Move {
+                    params.move_requests.write(StartMoveObjectRequested {
                         entity: request.entity,
                     });
                 }
             }
             ObjectActionKind::Delete => {
-                modal_requests.write(crate::ui::ModalRequest::Open(
+                params.modal_requests.write(crate::ui::ModalRequest::Open(
                     crate::ui::ModalKind::ConfirmDelete {
                         entity: request.entity,
                     },
@@ -273,6 +268,18 @@ pub fn handle_object_action_requests(
             }
         }
     }
+}
+
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+pub(crate) struct ObjectActionRequestParams<'w, 's> {
+    requests: MessageReader<'w, 's, ObjectActionRequested>,
+    mode: Res<'w, State<ToolMode>>,
+    selection: ResMut<'w, SelectionState>,
+    move_requests: MessageWriter<'w, StartMoveObjectRequested>,
+    rotate_requests: MessageWriter<'w, RotateObjectRequested>,
+    modal_requests: MessageWriter<'w, crate::ui::ModalRequest>,
+    tool_activation: MessageWriter<'w, ActivateToolRequested>,
 }
 
 #[derive(Message, Debug, Clone, Copy)]
