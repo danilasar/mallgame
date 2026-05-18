@@ -14,6 +14,7 @@ pub struct InspectorActionButton {
     pub action: ObjectActionKind,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn render_object_inspector(
     commands: &mut Commands,
     parent: Entity,

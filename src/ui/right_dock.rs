@@ -11,6 +11,7 @@ use crate::ui::{
     WindowLayer,
     buttons::{UiFonts, label_text, ui_button},
 };
+use bevy::ecs::system::SystemParam;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct InterfaceSwitcherButton {
@@ -129,37 +130,49 @@ fn right_dock_button_system(
     }
 }
 
-fn render_active_interface_panel(
-    mut commands: Commands,
-    active: Res<ActiveInterfacePanel>,
-    selection: Res<SelectionState>,
-    tool_mode: Res<State<ToolMode>>,
-    fonts: Res<UiFonts>,
-    layer: Query<Entity, With<WindowLayer>>,
-    existing: Query<Entity, With<InterfacePanelContent>>,
-    objects: Query<(
-        Option<&Name>,
-        Option<&Movable>,
-        Option<&Rotatable>,
-        Option<&Deletable>,
-    )>,
-) {
-    if !active.is_changed() && !selection.is_changed() && !tool_mode.is_changed() {
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+struct RenderActiveInterfacePanelParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    active: Res<'w, ActiveInterfacePanel>,
+    selection: Res<'w, SelectionState>,
+    tool_mode: Res<'w, State<ToolMode>>,
+    fonts: Res<'w, UiFonts>,
+    layer: Query<'w, 's, Entity, With<WindowLayer>>,
+    existing: Query<'w, 's, Entity, With<InterfacePanelContent>>,
+    objects: Query<
+        'w,
+        's,
+        (
+            Option<&'static Name>,
+            Option<&'static Movable>,
+            Option<&'static Rotatable>,
+            Option<&'static Deletable>,
+        ),
+    >,
+}
+
+fn render_active_interface_panel(mut params: RenderActiveInterfacePanelParams) {
+    if !params.active.is_changed()
+        && !params.selection.is_changed()
+        && !params.tool_mode.is_changed()
+    {
         return;
     }
 
-    for entity in &existing {
-        commands.entity(entity).despawn();
+    for entity in &params.existing {
+        params.commands.entity(entity).despawn();
     }
 
-    let Some(panel) = active.id else {
+    let Some(panel) = params.active.id else {
         return;
     };
-    let Some(layer) = layer.iter().next() else {
+    let Some(layer) = params.layer.iter().next() else {
         return;
     };
 
-    let content = commands
+    let content = params
+        .commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
@@ -179,7 +192,7 @@ fn render_active_interface_panel(
             Name::new("InterfacePanelContent"),
         ))
         .id();
-    commands.entity(layer).add_child(content);
+    params.commands.entity(layer).add_child(content);
 
     match panel {
         InterfacePanelId::Tools => {
@@ -190,43 +203,47 @@ fn render_active_interface_panel(
                 ("Build", ToolMode::Build),
                 ("Expand", ToolMode::Expansion),
             ] {
-                let button = commands
+                let button = params
+                    .commands
                     .spawn((ui_button(label, 118.0, 34.0), ToolModeUiButton { mode }))
-                    .with_child(label_text(label, &fonts))
+                    .with_child(label_text(label, &params.fonts))
                     .id();
-                commands.entity(content).add_child(button);
+                params.commands.entity(content).add_child(button);
             }
         }
         InterfacePanelId::BuildCatalog => {
-            commands.entity(content).with_children(|parent| {
-                parent.spawn(label_text("Build catalog", &fonts));
-                parent.spawn(label_text("Prototype: Chair", &fonts));
+            params.commands.entity(content).with_children(|parent| {
+                parent.spawn(label_text("Build catalog", &params.fonts));
+                parent.spawn(label_text("Prototype: Chair", &params.fonts));
             });
         }
         InterfacePanelId::Inventory => {
-            commands
+            params
+                .commands
                 .entity(content)
-                .with_child(label_text("Inventory", &fonts));
+                .with_child(label_text("Inventory", &params.fonts));
         }
         InterfacePanelId::Debug => {
-            commands
+            params
+                .commands
                 .entity(content)
-                .with_child(label_text("Debug", &fonts));
+                .with_child(label_text("Debug", &params.fonts));
         }
         InterfacePanelId::ObjectInspector => {
             render_object_inspector(
-                &mut commands,
+                &mut params.commands,
                 content,
-                &selection,
-                &fonts,
-                *tool_mode.get(),
-                objects,
+                &params.selection,
+                &params.fonts,
+                *params.tool_mode.get(),
+                params.objects,
             );
         }
         InterfacePanelId::Settings => {
-            commands
+            params
+                .commands
                 .entity(content)
-                .with_child(label_text("Settings", &fonts));
+                .with_child(label_text("Settings", &params.fonts));
         }
     }
 }

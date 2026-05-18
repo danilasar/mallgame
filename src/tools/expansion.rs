@@ -5,6 +5,7 @@ use crate::tools::{
     ActiveToolSession, ExpansionToolSession, ReturnToPreviousToolRequested, ToolContext,
     ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry, ToolSessionState, ToolSet,
 };
+use bevy::ecs::system::SystemParam;
 
 pub struct ExpansionToolPlugin;
 
@@ -46,57 +47,61 @@ fn cleanup_expansion_session(mut commands: Commands, mut session: ResMut<ToolSes
     );
 }
 
-pub fn expansion_tool_system(
-    _commands: Commands,
-    pointer: Res<PointerContext>,
-    targets: Res<PointerTargets>,
-    gate: Res<ToolInputGate>,
-    _actions: Res<InputActionState>,
-    _next_mode: ResMut<NextState<ToolMode>>,
-    mut tool: ResMut<ToolContext>,
-    mut session: ResMut<ToolSessionState>,
-    world_bounds: Res<crate::store::WorldBounds>,
-    store: Res<crate::store::StoreArea>,
-    mut modal_requests: MessageWriter<crate::ui::ModalRequest>,
-    mut return_to_previous: MessageWriter<ReturnToPreviousToolRequested>,
-) {
-    tool.sync_from_pointer(&pointer, &targets);
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+pub(crate) struct ExpansionToolParams<'w, 's> {
+    _commands: Commands<'w, 's>,
+    pointer: Res<'w, PointerContext>,
+    targets: Res<'w, PointerTargets>,
+    gate: Res<'w, ToolInputGate>,
+    _actions: Res<'w, InputActionState>,
+    _next_mode: ResMut<'w, NextState<ToolMode>>,
+    tool: ResMut<'w, ToolContext>,
+    session: ResMut<'w, ToolSessionState>,
+    world_bounds: Res<'w, crate::store::WorldBounds>,
+    store: Res<'w, crate::store::StoreArea>,
+    modal_requests: MessageWriter<'w, crate::ui::ModalRequest>,
+    return_to_previous: MessageWriter<'w, ReturnToPreviousToolRequested>,
+}
 
-    if !gate.can_use_world() {
+pub fn expansion_tool_system(mut params: ExpansionToolParams) {
+    params.tool.sync_from_pointer(&params.pointer, &params.targets);
+
+    if !params.gate.can_use_world() {
         return;
     }
 
-    if gate.cancel_requested {
-        return_to_previous.write(ReturnToPreviousToolRequested);
+    if params.gate.cancel_requested {
+        params.return_to_previous.write(ReturnToPreviousToolRequested);
         return;
     }
 
-    if let Some(ActiveToolSession::Expansion(expansion)) = session.active.as_mut() {
-        let coord = store.world_to_chunk_coord(pointer.world_pos);
+    if let Some(ActiveToolSession::Expansion(expansion)) = params.session.active.as_mut() {
+        let coord = params.store.world_to_chunk_coord(params.pointer.world_pos);
         expansion.hovered_coord = Some(coord);
 
         let validation = crate::store::expansion::validate_chunk_purchase(
-            &world_bounds,
-            &store,
+            &params.world_bounds,
+            &params.store,
             coord,
             crate::store::chunks::StoreChunkKind::Default,
         );
         let valid = validation.valid;
         expansion.validation = Some(validation);
 
-        if gate.primary_world_click_released && valid {
+        if params.gate.primary_world_click_released && valid {
             info!(
                 "Expansion click detected at coord {:?}, opening modal",
                 coord
             );
             expansion.pending_confirm_coord = Some(coord);
-            modal_requests.write(crate::ui::ModalRequest::Open(
+            params.modal_requests.write(crate::ui::ModalRequest::Open(
                 crate::ui::ModalKind::ConfirmPurchaseChunk {
                     coord,
                     kind: crate::store::chunks::StoreChunkKind::Default,
                 },
             ));
-        } else if gate.primary_world_click_released {
+        } else if params.gate.primary_world_click_released {
             warn!(
                 "Expansion click detected at coord {:?} but it is INVALID",
                 coord

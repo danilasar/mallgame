@@ -100,6 +100,7 @@ pub fn build_load_plan(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn reset_runtime_for_load(
     commands: &mut Commands,
     session: &mut ToolSessionState,
@@ -168,8 +169,8 @@ pub fn apply_load_plan(
     // 3. Spawn objects
     let mut loaded_count = 0;
     for object_plan in &plan.object_plans {
-        if let ObjectLoadPlan::Spawn(obj) = object_plan {
-            if let Ok(_entity) = spawn_store_object_from_prototype(
+        if let ObjectLoadPlan::Spawn(obj) = object_plan
+            && let Ok(_entity) = spawn_store_object_from_prototype(
                 commands,
                 asset_server,
                 catalog,
@@ -179,9 +180,9 @@ pub fn apply_load_plan(
                     world_pos: Vec2::new(obj.world_pos.x, obj.world_pos.y),
                     rotation_index: obj.rotation_index,
                 },
-            ) {
-                loaded_count += 1;
-            }
+            )
+        {
+            loaded_count += 1;
         }
     }
 

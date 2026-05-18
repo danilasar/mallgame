@@ -52,22 +52,28 @@ fn save_load_hotkey_system(
     }
 }
 
-fn handle_quick_save(
-    mut events: MessageReader<QuickSaveRequested>,
-    store: Res<StoreArea>,
-    allocator: Res<StableObjectIdAllocator>,
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+struct QuickSaveParams<'w, 's> {
+    events: MessageReader<'w, 's, QuickSaveRequested>,
+    store: Res<'w, StoreArea>,
+    allocator: Res<'w, StableObjectIdAllocator>,
     objects_query: Query<
+        'w,
+        's,
         (
-            &crate::objects::components::ObjectStableId,
-            &crate::objects::components::ObjectPrototypeId,
-            &crate::objects::components::WorldPos,
-            Option<&crate::objects::rotation::Rotatable>,
+            &'static crate::objects::components::ObjectStableId,
+            &'static crate::objects::components::ObjectPrototypeId,
+            &'static crate::objects::components::WorldPos,
+            Option<&'static crate::objects::rotation::Rotatable>,
         ),
         (With<StoreObject>, Without<crate::tools::ToolPreview>),
     >,
-) {
-    for _ in events.read() {
-        let save = extract_save_game(&store, &allocator, &objects_query);
+}
+
+fn handle_quick_save(mut params: QuickSaveParams) {
+    for _ in params.events.read() {
+        let save = extract_save_game(&params.store, &params.allocator, &params.objects_query);
         match write_save_file_atomic("quicksave.json", &save) {
             Ok(_) => info!("QuickSave successful"),
             Err(e) => error!("QuickSave failed: {}", e),

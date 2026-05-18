@@ -128,8 +128,8 @@ pub fn update_footprint_outline_overlay(
     }
 
     // Hide remaining unused segments
-    for i in segment_count..existing_segments.len() {
-        if let Ok((_, _, _, _, mut visibility)) = overlays.get_mut(existing_segments[i]) {
+    for entity in existing_segments.iter().skip(segment_count).copied() {
+        if let Ok((_, _, _, _, mut visibility)) = overlays.get_mut(entity) {
             *visibility = Visibility::Hidden;
         }
     }

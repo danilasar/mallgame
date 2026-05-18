@@ -1,6 +1,7 @@
 use crate::objects::components::StableObjectId;
 use crate::objects::prototypes::{BuildObjectId, ObjectCatalog};
 use crate::store::chunks::{StoreChunkCoord, StoreChunkKind};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use std::collections::VecDeque;
 
@@ -105,36 +106,63 @@ pub struct DomainCommandRejected {
     pub reason: DomainCommandRejectReason,
 }
 
-pub fn apply_domain_commands(
-    mut commands: Commands,
-    mut queue: ResMut<DomainCommandQueue>,
-    mut events: MessageWriter<crate::store::events::DomainEvent>,
-    mut rejections: MessageWriter<DomainCommandRejected>,
-    asset_server: Res<AssetServer>,
-    world_bounds: Res<crate::store::WorldBounds>,
-    catalog: Res<ObjectCatalog>,
-    mut store: ResMut<crate::store::area::StoreArea>,
-    mut _allocator: ResMut<crate::objects::components::StableObjectIdAllocator>,
-    mut set: ParamSet<(
-        Query<(
-            Entity,
-            &crate::objects::components::WorldPos,
-            &crate::objects::components::Footprint,
-            Option<&crate::objects::components::BlocksPlacement>,
-        )>,
-        Query<
-            (
-                &mut crate::objects::rotation::Rotatable,
-                &mut Sprite,
-                &mut crate::objects::components::Footprint,
-                &mut crate::objects::components::FootAnchor,
-                &mut crate::objects::components::VisualOffset,
-            ),
-            Without<crate::tools::ToolPreview>,
-        >,
-        Query<(Entity, &crate::objects::components::ObjectStableId)>,
-    )>,
-) {
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+pub struct DomainCommandApplyParams<'w, 's> {
+    pub commands: Commands<'w, 's>,
+    pub queue: ResMut<'w, DomainCommandQueue>,
+    pub events: MessageWriter<'w, crate::store::events::DomainEvent>,
+    pub rejections: MessageWriter<'w, DomainCommandRejected>,
+    pub asset_server: Res<'w, AssetServer>,
+    pub world_bounds: Res<'w, crate::store::WorldBounds>,
+    pub catalog: Res<'w, ObjectCatalog>,
+    pub store: ResMut<'w, crate::store::area::StoreArea>,
+    pub _allocator: ResMut<'w, crate::objects::components::StableObjectIdAllocator>,
+    pub set: ParamSet<
+        'w,
+        's,
+        (
+            Query<
+                'w,
+                's,
+                (
+                    Entity,
+                    &'static crate::objects::components::WorldPos,
+                    &'static crate::objects::components::Footprint,
+                    Option<&'static crate::objects::components::BlocksPlacement>,
+                ),
+            >,
+            Query<
+                'w,
+                's,
+                (
+                    &'static mut crate::objects::rotation::Rotatable,
+                    &'static mut Sprite,
+                    &'static mut crate::objects::components::Footprint,
+                    &'static mut crate::objects::components::FootAnchor,
+                    &'static mut crate::objects::components::VisualOffset,
+                ),
+                Without<crate::tools::ToolPreview>,
+            >,
+            Query<'w, 's, (Entity, &'static crate::objects::components::ObjectStableId)>,
+        ),
+    >,
+}
+
+pub fn apply_domain_commands(params: DomainCommandApplyParams) {
+    let DomainCommandApplyParams {
+        mut commands,
+        mut queue,
+        mut events,
+        mut rejections,
+        asset_server,
+        world_bounds,
+        catalog,
+        mut store,
+        _allocator,
+        mut set,
+    } = params;
+
     let mut lookup = std::collections::HashMap::new();
     for (entity, stable_id) in &set.p2() {
         lookup.insert(stable_id.0, entity);
@@ -249,6 +277,7 @@ fn apply_build_object(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn apply_move_object(
     c: &MoveObjectCommand,
     entity: Entity,
@@ -311,15 +340,14 @@ fn apply_move_object(
         let mut rotatables = set.p1();
         if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) =
             rotatables.get_mut(entity)
+            && new_rotation < rotatable.variants.len()
         {
-            if new_rotation < rotatable.variants.len() {
-                rotatable.current = new_rotation;
-                let variant = &rotatable.variants[new_rotation];
-                sprite.image = variant.sprite.clone();
-                *fp = variant.footprint.clone();
-                anchor.0 = variant.foot_anchor;
-                offset.0 = variant.visual_offset;
-            }
+            rotatable.current = new_rotation;
+            let variant = &rotatable.variants[new_rotation];
+            sprite.image = variant.sprite.clone();
+            *fp = variant.footprint.clone();
+            anchor.0 = variant.foot_anchor;
+            offset.0 = variant.visual_offset;
         }
     }
 
@@ -332,6 +360,7 @@ fn apply_move_object(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn apply_rotate_object(
     c: &RotateObjectCommand,
     entity: Entity,
@@ -431,6 +460,7 @@ fn apply_rotate_object(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn apply_delete_object(
     c: &DeleteObjectCommand,
     commands: &mut Commands,
@@ -451,6 +481,7 @@ fn apply_delete_object(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn apply_purchase_chunk(
     c: &PurchaseChunkCommand,
     world_bounds: &crate::store::WorldBounds,

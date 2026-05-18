@@ -152,6 +152,7 @@ impl HighlightKind {
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(dead_code, reason = "future marker for debug picking")]
 pub enum InteractionRole {
     WorldObject,
     WorldWidget,
@@ -161,6 +162,7 @@ pub enum InteractionRole {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(dead_code, reason = "future markers for selection/debug overlays")]
 pub enum RuntimeOwner {
     ToolPreview,
     WorldWidget,

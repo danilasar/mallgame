@@ -223,7 +223,6 @@ pub enum ObjectActionOrigin {
 }
 
 pub fn handle_object_action_requests(
-    mut _commands: Commands,
     mut requests: MessageReader<ObjectActionRequested>,
     mode: Res<State<ToolMode>>,
     mut selection: ResMut<SelectionState>,

@@ -32,6 +32,7 @@ pub struct RotationVariant {
     pub visual_offset: Vec2,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn handle_rotate_requests(
     mut requests: MessageReader<RotateObjectRequested>,
     mut queue: ResMut<crate::store::commands::DomainCommandQueue>,

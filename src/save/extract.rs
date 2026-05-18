@@ -7,18 +7,23 @@ use crate::store::StoreArea;
 use crate::tools::ToolPreview;
 use bevy::prelude::*;
 
+type SaveObjectsQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ObjectStableId,
+        &'static ObjectPrototypeId,
+        &'static WorldPos,
+        Option<&'static Rotatable>,
+    ),
+    (With<StoreObject>, Without<ToolPreview>),
+>;
+
+#[allow(clippy::type_complexity)]
 pub fn extract_save_game(
     store: &StoreArea,
     allocator: &StableObjectIdAllocator,
-    objects_query: &Query<
-        (
-            &ObjectStableId,
-            &ObjectPrototypeId,
-            &WorldPos,
-            Option<&Rotatable>,
-        ),
-        (With<StoreObject>, Without<ToolPreview>),
-    >,
+    objects_query: &SaveObjectsQuery<'_, '_>,
 ) -> SaveGame {
     let mut saved_objects: Vec<ObjectSave> = objects_query
         .iter()

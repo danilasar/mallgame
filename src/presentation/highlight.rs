@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::objects::components::*;
 use crate::tools::{PlacementPreview, PreviewSource, SelectionState, ToolContext, ToolMode};
 
+#[allow(clippy::type_complexity)]
 pub fn update_highlight_intents(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
@@ -51,6 +52,7 @@ pub fn update_highlight_intents(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn update_highlight_visuals(
     mut query: Query<
         (

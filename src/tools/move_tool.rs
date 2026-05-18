@@ -10,6 +10,7 @@ use crate::tools::{
     PreviewSource, StartMoveObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
     ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
 };
+use bevy::ecs::system::SystemParam;
 
 pub struct MoveToolPlugin;
 
@@ -35,24 +36,30 @@ impl Plugin for MoveToolPlugin {
     }
 }
 
-pub fn apply_start_move_object_requests(
-    mut commands: Commands,
-    mut requests: MessageReader<StartMoveObjectRequested>,
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+pub(crate) struct StartMoveObjectParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    requests: MessageReader<'w, 's, StartMoveObjectRequested>,
     movable: Query<
+        'w,
+        's,
         (
-            &WorldPos,
-            &FootAnchor,
-            &Footprint,
-            &VisualOffset,
-            &Sprite,
-            &SortBias,
-            Option<&crate::objects::rotation::Rotatable>,
+            &'static WorldPos,
+            &'static FootAnchor,
+            &'static Footprint,
+            &'static VisualOffset,
+            &'static Sprite,
+            &'static SortBias,
+            Option<&'static crate::objects::rotation::Rotatable>,
         ),
         (With<Movable>, With<StoreObject>),
     >,
-    mut session: ResMut<ToolSessionState>,
-) {
-    for request in requests.read() {
+    session: ResMut<'w, ToolSessionState>,
+}
+
+pub fn apply_start_move_object_requests(mut params: StartMoveObjectParams) {
+    for request in params.requests.read() {
         if let Ok((
             world_pos,
             foot_anchor,
@@ -61,19 +68,18 @@ pub fn apply_start_move_object_requests(
             sprite,
             sort_bias,
             rotatable,
-        )) = movable.get(request.entity)
+        )) = params.movable.get(request.entity)
         {
-            // Cleanup existing session if any
             crate::tools::cleanup_current_session(
-                &mut commands,
-                &mut session,
+                &mut params.commands,
+                &mut params.session,
                 crate::tools::ToolSessionEndReason::Replaced,
             );
 
             let rotation_index = rotatable.map_or(0, |r| r.current);
 
-            // Spawn preview entity
-            let preview_entity = commands
+            let preview_entity = params
+                .commands
                 .spawn((
                     Sprite {
                         image: sprite.image.clone(),
@@ -102,11 +108,12 @@ pub fn apply_start_move_object_requests(
                 ))
                 .id();
 
-            commands
+            params
+                .commands
                 .entity(request.entity)
                 .insert(PreviewSource { preview_entity });
 
-            session.active = Some(ActiveToolSession::Move(MoveToolSession {
+            params.session.active = Some(ActiveToolSession::Move(MoveToolSession {
                 source_entity: request.entity,
                 preview_entity,
                 original_world_pos: world_pos.0,
@@ -117,59 +124,67 @@ pub fn apply_start_move_object_requests(
     }
 }
 
-pub fn move_tool_system(
-    mut commands: Commands,
-    pointer: Res<PointerContext>,
-    targets: Res<PointerTargets>,
-    gate: Res<ToolInputGate>,
-    actions: Res<InputActionState>,
-    movable: Query<Entity, (With<Movable>, With<StoreObject>)>,
-    mut ghost_positions: Query<
-        (&mut WorldPos, &PlacementPreview),
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+pub(crate) struct MoveToolParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    pointer: Res<'w, PointerContext>,
+    targets: Res<'w, PointerTargets>,
+    gate: Res<'w, ToolInputGate>,
+    actions: Res<'w, InputActionState>,
+    movable: Query<'w, 's, Entity, (With<Movable>, With<StoreObject>)>,
+    ghost_positions: Query<
+        'w,
+        's,
+        (&'static mut WorldPos, &'static PlacementPreview),
         (With<ToolPreview>, Without<StoreObject>),
     >,
-    mut session: ResMut<ToolSessionState>,
-    mut committed: MessageWriter<MoveObjectCommitted>,
-    mut requests: MessageWriter<StartMoveObjectRequested>,
-    mut tool: ResMut<ToolContext>,
-) {
-    tool.sync_from_pointer(&pointer, &targets);
-    if !gate.can_use_world() {
+    session: ResMut<'w, ToolSessionState>,
+    committed: MessageWriter<'w, MoveObjectCommitted>,
+    requests: MessageWriter<'w, StartMoveObjectRequested>,
+    tool: ResMut<'w, ToolContext>,
+}
+
+pub fn move_tool_system(mut params: MoveToolParams) {
+    params.tool.sync_from_pointer(&params.pointer, &params.targets);
+    if !params.gate.can_use_world() {
         return;
     }
 
-    if gate.cancel_requested {
+    if params.gate.cancel_requested {
         crate::tools::cleanup_current_session(
-            &mut commands,
-            &mut session,
+            &mut params.commands,
+            &mut params.session,
             crate::tools::ToolSessionEndReason::Cancelled,
         );
         return;
     }
 
-    if let Some(ActiveToolSession::Move(move_session)) = session.active.as_mut() {
+    if let Some(ActiveToolSession::Move(move_session)) = params.session.active.as_mut() {
         // Reset freshness once button is fully released (and not in the release frame itself)
-        if !actions.pressed(InputAction::PrimaryClick)
-            && !actions.just_released(InputAction::PrimaryClick)
+        if !params.actions.pressed(InputAction::PrimaryClick)
+            && !params.actions.just_released(InputAction::PrimaryClick)
         {
             move_session.awaiting_fresh_click = false;
         }
 
-        if let Ok((mut world_pos, preview)) = ghost_positions.get_mut(move_session.preview_entity) {
-            world_pos.0 = pointer.world_pos;
+        if let Ok((mut world_pos, preview)) =
+            params.ghost_positions.get_mut(move_session.preview_entity)
+        {
+            world_pos.0 = params.pointer.world_pos;
 
-            if gate.primary_world_click_released && !move_session.awaiting_fresh_click {
+            if params.gate.primary_world_click_released && !move_session.awaiting_fresh_click {
                 let is_valid = preview.validation.as_ref().is_some_and(|r| r.is_ok());
                 if is_valid {
-                    committed.write(MoveObjectCommitted {
+                    params.committed.write(MoveObjectCommitted {
                         entity: move_session.source_entity,
                         new_pos: world_pos.0,
                         rotation: move_session.rotation_index,
                     });
                 }
                 crate::tools::cleanup_current_session(
-                    &mut commands,
-                    &mut session,
+                    &mut params.commands,
+                    &mut params.session,
                     if is_valid {
                         crate::tools::ToolSessionEndReason::Committed
                     } else {
@@ -182,12 +197,13 @@ pub fn move_tool_system(
     }
 
     // Start move via click
-    if gate.primary_world_press_started
-        && let Some(entity) = tool
+    if params.gate.primary_world_press_started
+        && let Some(entity) = params
+            .tool
             .hovered_entity
-            .filter(|entity| movable.get(*entity).is_ok())
+            .filter(|entity| params.movable.get(*entity).is_ok())
     {
-        requests.write(StartMoveObjectRequested { entity });
+        params.requests.write(StartMoveObjectRequested { entity });
     }
 }
 

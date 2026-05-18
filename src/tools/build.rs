@@ -10,6 +10,7 @@ use crate::tools::{
     NonInteractive, PlacementPreview, ToolActivationKind, ToolContext, ToolDescriptor,
     ToolInputGate, ToolMode, ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
 };
+use bevy::ecs::system::SystemParam;
 
 pub struct BuildToolPlugin;
 
@@ -41,18 +42,10 @@ impl Plugin for BuildToolPlugin {
 }
 
 fn apply_select_build_prototype_requests(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    catalog: Res<ObjectCatalog>,
-    pointer: Res<PointerContext>,
-    current_mode: Res<State<ToolMode>>,
-    mut requests: MessageReader<SelectBuildPrototypeRequested>,
-    mut selection: ResMut<BuildSelectionState>,
-    mut activation: MessageWriter<ActivateToolRequested>,
-    mut session: ResMut<ToolSessionState>,
+    mut params: SelectBuildPrototypeParams,
 ) {
-    for request in requests.read() {
-        if !catalog.prototypes.contains_key(&request.prototype_id) {
+    for request in params.requests.read() {
+        if !params.catalog.prototypes.contains_key(&request.prototype_id) {
             warn!(
                 "Request to select unknown prototype: {:?}",
                 request.prototype_id
@@ -60,24 +53,24 @@ fn apply_select_build_prototype_requests(
             continue;
         }
 
-        selection.selected_prototype_id = Some(request.prototype_id.clone());
+        params.selection.selected_prototype_id = Some(request.prototype_id.clone());
 
-        if *current_mode.get() == ToolMode::Build {
+        if *params.current_mode.get() == ToolMode::Build {
             crate::tools::cleanup_current_session(
-                &mut commands,
-                &mut session,
+                &mut params.commands,
+                &mut params.session,
                 crate::tools::ToolSessionEndReason::Replaced,
             );
             spawn_build_session(
-                &mut commands,
-                &asset_server,
-                &catalog,
-                &selection,
-                &pointer,
-                &mut session,
+                &mut params.commands,
+                &params.asset_server,
+                &params.catalog,
+                &params.selection,
+                &params.pointer,
+                &mut params.session,
             );
         } else {
-            activation.write(ActivateToolRequested {
+            params.activation.write(ActivateToolRequested {
                 mode: ToolMode::Build,
                 kind: ToolActivationKind::Replace,
             });
@@ -85,22 +78,40 @@ fn apply_select_build_prototype_requests(
     }
 }
 
+#[derive(SystemParam)]
+struct SelectBuildPrototypeParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    asset_server: Res<'w, AssetServer>,
+    catalog: Res<'w, ObjectCatalog>,
+    pointer: Res<'w, PointerContext>,
+    current_mode: Res<'w, State<ToolMode>>,
+    requests: MessageReader<'w, 's, SelectBuildPrototypeRequested>,
+    selection: ResMut<'w, BuildSelectionState>,
+    activation: MessageWriter<'w, ActivateToolRequested>,
+    session: ResMut<'w, ToolSessionState>,
+}
+
 fn start_build_session(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    catalog: Res<ObjectCatalog>,
-    selection: Res<BuildSelectionState>,
-    pointer: Res<PointerContext>,
-    mut session: ResMut<ToolSessionState>,
+    mut params: BuildSessionParams,
 ) {
     spawn_build_session(
-        &mut commands,
-        &asset_server,
-        &catalog,
-        &selection,
-        &pointer,
-        &mut session,
+        &mut params.commands,
+        &params.asset_server,
+        &params.catalog,
+        &params.selection,
+        &params.pointer,
+        &mut params.session,
     );
+}
+
+#[derive(SystemParam)]
+struct BuildSessionParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    asset_server: Res<'w, AssetServer>,
+    catalog: Res<'w, ObjectCatalog>,
+    selection: Res<'w, BuildSelectionState>,
+    pointer: Res<'w, PointerContext>,
+    session: ResMut<'w, ToolSessionState>,
 }
 
 fn spawn_build_session(
@@ -157,51 +168,59 @@ fn cleanup_build_session(mut commands: Commands, mut session: ResMut<ToolSession
 }
 
 pub fn build_tool_system(
-    mut commands: Commands,
-    pointer: Res<PointerContext>,
-    targets: Res<PointerTargets>,
-    gate: Res<ToolInputGate>,
-    actions: Res<InputActionState>,
-    mut next_mode: ResMut<NextState<ToolMode>>,
-    mut tool: ResMut<ToolContext>,
-    mut session: ResMut<ToolSessionState>,
-    mut ghost_positions: Query<&mut WorldPos>,
-    mut builds: MessageWriter<BuildObjectRequested>,
+    mut params: BuildToolParams,
 ) {
-    tool.sync_from_pointer(&pointer, &targets);
+    params.tool.sync_from_pointer(&params.pointer, &params.targets);
 
-    if !gate.can_use_world() {
+    if !params.gate.can_use_world() {
         return;
     }
 
-    if gate.cancel_requested {
+    if params.gate.cancel_requested {
         crate::tools::cleanup_current_session(
-            &mut commands,
-            &mut session,
+            &mut params.commands,
+            &mut params.session,
             crate::tools::ToolSessionEndReason::Cancelled,
         );
-        next_mode.set(ToolMode::Cursor);
+        params.next_mode.set(ToolMode::Cursor);
         return;
     }
 
-    if let Some(ActiveToolSession::Build(build_session)) = session.active.as_mut() {
+    if let Some(ActiveToolSession::Build(build_session)) = params.session.active.as_mut() {
         // Reset freshness once button is fully released (and not in the release frame itself)
-        if !actions.pressed(InputAction::PrimaryClick)
-            && !actions.just_released(InputAction::PrimaryClick)
+        if !params.actions.pressed(InputAction::PrimaryClick)
+            && !params.actions.just_released(InputAction::PrimaryClick)
         {
             build_session.awaiting_fresh_click = false;
         }
 
-        if let Ok(mut world_pos) = ghost_positions.get_mut(build_session.preview_entity) {
-            world_pos.0 = pointer.world_pos;
+        if let Ok(mut world_pos) = params
+            .ghost_positions
+            .get_mut(build_session.preview_entity)
+        {
+            world_pos.0 = params.pointer.world_pos;
         }
 
-        if gate.primary_world_click_released && !build_session.awaiting_fresh_click {
-            builds.write(BuildObjectRequested {
+        if params.gate.primary_world_click_released && !build_session.awaiting_fresh_click {
+            params.builds.write(BuildObjectRequested {
                 prototype: build_session.prototype_id.clone(),
-                pos: pointer.world_pos,
+                pos: params.pointer.world_pos,
                 rotation: build_session.rotation_index,
             });
         }
     }
+}
+
+#[derive(SystemParam)]
+pub(crate) struct BuildToolParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    pointer: Res<'w, PointerContext>,
+    targets: Res<'w, PointerTargets>,
+    gate: Res<'w, ToolInputGate>,
+    actions: Res<'w, InputActionState>,
+    next_mode: ResMut<'w, NextState<ToolMode>>,
+    tool: ResMut<'w, ToolContext>,
+    session: ResMut<'w, ToolSessionState>,
+    ghost_positions: Query<'w, 's, &'static mut WorldPos>,
+    builds: MessageWriter<'w, BuildObjectRequested>,
 }

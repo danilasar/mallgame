@@ -12,6 +12,7 @@ pub struct PointerTargets {
     pub debug: Option<Entity>,
 }
 
+#[allow(clippy::type_complexity)]
 pub fn update_hovered_object(
     projection: Res<IsoProjection>,
     mut pointer: ResMut<PointerContext>,
