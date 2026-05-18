@@ -26,7 +26,7 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
-use crate::objects::prototypes::{BuildPrototypeId, spawn_object_from_prototype};
+use crate::objects::prototypes::{BuildPrototypeId, spawn_store_object_from_prototype};
 use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::store::{StoreArea, WorldBounds};
 
@@ -49,6 +49,7 @@ impl Plugin for ToolCorePlugin {
             .init_resource::<ToolRegistry>()
             .init_resource::<ToolSessionState>()
             .init_resource::<ToolReturnState>()
+            .insert_resource(StableObjectIdAllocator { next: 1 })
             .add_message::<ObjectActionRequested>()
             .add_message::<MoveObjectCommitted>()
             .add_message::<DeleteObjectRequested>()
@@ -179,6 +180,7 @@ pub fn cleanup_current_session(
 pub struct ObjectActionRequested {
     pub entity: Entity,
     pub action: ObjectActionKind,
+    #[allow(dead_code)]
     pub origin: ObjectActionOrigin,
 }
 
@@ -196,6 +198,7 @@ pub enum ObjectActionOrigin {
     CursorClick,
     InspectorButton,
     WorldWidget,
+    #[allow(dead_code)]
     Hotkey,
 }
 
@@ -285,6 +288,7 @@ pub fn apply_committed_events(
     mut deletes: MessageReader<DeleteObjectRequested>,
     mut builds: MessageReader<BuildObjectRequested>,
     mut tool: ResMut<ToolContext>,
+    mut allocator: ResMut<StableObjectIdAllocator>,
     mut set: ParamSet<(
         Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
         Query<
@@ -386,16 +390,20 @@ pub fn apply_committed_events(
         );
 
         if validation.is_ok() {
-            spawn_object_from_prototype(
+            let stable_id = allocator.allocate();
+            spawn_store_object_from_prototype(
                 &mut commands,
                 &asset_server,
-                build.prototype,
-                build.pos,
-                build.rotation,
+                crate::objects::prototypes::SpawnStoreObjectParams {
+                    stable_id,
+                    prototype_id: build.prototype,
+                    world_pos: build.pos,
+                    rotation_index: Some(build.rotation),
+                },
             );
             info!(
-                "BuildObjectRequested prototype={:?} pos=({:.1},{:.1}) rotation={}",
-                build.prototype, build.pos.x, build.pos.y, build.rotation
+                "BuildObjectRequested prototype={:?} pos=({:.1},{:.1}) rotation={} stable_id={:?}",
+                build.prototype, build.pos.x, build.pos.y, build.rotation, stable_id
             );
         } else {
             warn!(

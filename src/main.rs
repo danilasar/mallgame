@@ -2,6 +2,7 @@ mod input;
 mod objects;
 mod placement;
 mod presentation;
+mod save;
 mod store;
 mod tools;
 mod ui;
@@ -12,6 +13,7 @@ use objects::components::*;
 use objects::prototypes::*;
 use objects::rotation::*;
 use presentation::*;
+use save::*;
 use store::*;
 use tools::*;
 use ui::*;
@@ -44,6 +46,7 @@ fn main() {
             WorldWidgetUiPlugin,
             StorePlugin,
             StoreOverlayPlugin,
+            SaveLoadPlugin,
         ))
         .add_plugins((
             ToolCorePlugin,
@@ -119,29 +122,42 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut allocator: ResMut<StableObjectIdAllocator>,
+) {
     commands.spawn(Camera2d);
     let _sort_layers = SortLayer::ALL;
 
-    spawn_object_from_prototype(
+    spawn_store_object_from_prototype(
         &mut commands,
         &asset_server,
-        BuildPrototypeId::Chair,
-        Vec2::new(-180.0, -20.0),
-        0,
+        SpawnStoreObjectParams {
+            stable_id: allocator.allocate(),
+            prototype_id: BuildPrototypeId::Chair,
+            world_pos: Vec2::new(-180.0, -20.0),
+            rotation_index: Some(0),
+        },
     );
-    spawn_object_from_prototype(
+    spawn_store_object_from_prototype(
         &mut commands,
         &asset_server,
-        BuildPrototypeId::Table,
-        Vec2::new(80.0, -40.0),
-        0,
+        SpawnStoreObjectParams {
+            stable_id: allocator.allocate(),
+            prototype_id: BuildPrototypeId::Table,
+            world_pos: Vec2::new(80.0, -40.0),
+            rotation_index: Some(0),
+        },
     );
-    spawn_object_from_prototype(
+    spawn_store_object_from_prototype(
         &mut commands,
         &asset_server,
-        BuildPrototypeId::Tree,
-        Vec2::new(140.0, 130.0),
-        0,
+        SpawnStoreObjectParams {
+            stable_id: allocator.allocate(),
+            prototype_id: BuildPrototypeId::Tree,
+            world_pos: Vec2::new(140.0, 130.0),
+            rotation_index: Some(0),
+        },
     );
 }

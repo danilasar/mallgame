@@ -1,6 +1,29 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::prototypes::BuildPrototypeId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StableObjectId(pub u64);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ObjectStableId(pub StableObjectId);
+
+#[derive(Component, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ObjectPrototypeId(pub BuildPrototypeId);
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct StableObjectIdAllocator {
+    pub next: u64,
+}
+
+impl StableObjectIdAllocator {
+    pub fn allocate(&mut self) -> StableObjectId {
+        let id = StableObjectId(self.next);
+        self.next += 1;
+        id
+    }
+}
 
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct WorldPos(pub Vec2);

@@ -1,9 +1,11 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::components::*;
 use super::rotation::{Rotatable, RotationVariant};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BuildPrototypeId {
     Chair,
     Table,
@@ -62,15 +64,21 @@ pub fn prototype_spec(prototype: BuildPrototypeId) -> PrototypeSpec {
     }
 }
 
-pub fn spawn_object_from_prototype(
+pub struct SpawnStoreObjectParams {
+    pub stable_id: StableObjectId,
+    pub prototype_id: BuildPrototypeId,
+    pub world_pos: Vec2,
+    pub rotation_index: Option<usize>,
+}
+
+pub fn spawn_store_object_from_prototype(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    prototype: BuildPrototypeId,
-    world_pos: Vec2,
-    rotation_index: usize,
+    params: SpawnStoreObjectParams,
 ) -> Entity {
-    let spec = prototype_spec(prototype);
+    let spec = prototype_spec(params.prototype_id);
     let image = asset_server.load(spec.asset_path);
+    let rotation_index = params.rotation_index.unwrap_or(0);
 
     let entity = commands
         .spawn((
@@ -80,7 +88,7 @@ pub fn spawn_object_from_prototype(
                     custom_size: Some(spec.sprite_size),
                     ..default()
                 },
-                WorldPos(world_pos),
+                WorldPos(params.world_pos),
                 ProjectedPos::default(),
                 FootAnchor(spec.foot_anchor),
                 VisualOffset(Vec2::ZERO),
@@ -97,13 +105,15 @@ pub fn spawn_object_from_prototype(
                 Deletable,
                 StoreObject,
                 InteractionRole::WorldObject,
+                ObjectStableId(params.stable_id),
+                ObjectPrototypeId(params.prototype_id),
                 PlaceableAssetId(spec.asset_id),
                 Name::new(spec.asset_id),
             ),
         ))
         .id();
 
-    if let Some(mut rotatable) = rotatable_for_prototype(asset_server, prototype, image, spec) {
+    if let Some(mut rotatable) = rotatable_for_prototype(asset_server, params.prototype_id, image, spec) {
         // Apply initial rotation
         if rotation_index < rotatable.variants.len() {
             rotatable.current = rotation_index;

@@ -11,73 +11,77 @@ pub enum InputAction {
     SecondaryClick,
     Cancel,
     Confirm,
+    Rotate,
+    QuickSave,
+    QuickLoad,
     CameraZoomIn,
     CameraZoomOut,
     ToggleFullscreen,
     PrintDebugPositions,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Resource, Debug, Default, Clone)]
+pub struct InputActionState {
+    pub pressed: HashSet<InputAction>,
+    pub just_pressed: HashSet<InputAction>,
+    pub just_released: HashSet<InputAction>,
+}
+
+impl InputActionState {
+    pub fn pressed(&self, action: InputAction) -> bool {
+        self.pressed.contains(&action)
+    }
+    pub fn just_pressed(&self, action: InputAction) -> bool {
+        self.just_pressed.contains(&action)
+    }
+    pub fn just_released(&self, action: InputAction) -> bool {
+        self.just_released.contains(&action)
+    }
+}
+
 pub enum InputBinding {
     Key(KeyCode),
     Mouse(MouseButton),
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource)]
 pub struct InputBindings {
-    map: HashMap<InputAction, Vec<InputBinding>>,
+    pub map: HashMap<InputAction, Vec<InputBinding>>,
 }
 
 impl Default for InputBindings {
     fn default() -> Self {
-        use InputAction::*;
-        use InputBinding::*;
-
-        let mut map = HashMap::new();
-        map.insert(ToolCursor, vec![Key(KeyCode::Digit1)]);
-        map.insert(ToolMove, vec![Key(KeyCode::Digit2)]);
-        map.insert(ToolDelete, vec![Key(KeyCode::Digit3)]);
-        map.insert(ToolBuild, vec![Key(KeyCode::Digit4)]);
-        map.insert(PrimaryClick, vec![Mouse(MouseButton::Left)]);
-        map.insert(SecondaryClick, vec![Mouse(MouseButton::Right)]);
-        map.insert(
-            Cancel,
-            vec![Key(KeyCode::Escape), Mouse(MouseButton::Right)],
+        let mut bindings = Self {
+            map: HashMap::new(),
+        };
+        bindings.insert(InputAction::ToolCursor, InputBinding::Key(KeyCode::Digit1));
+        bindings.insert(InputAction::ToolMove, InputBinding::Key(KeyCode::Digit2));
+        bindings.insert(InputAction::ToolDelete, InputBinding::Key(KeyCode::Digit3));
+        bindings.insert(InputAction::ToolBuild, InputBinding::Key(KeyCode::Digit4));
+        bindings.insert(InputAction::PrimaryClick, InputBinding::Mouse(MouseButton::Left));
+        bindings.insert(
+            InputAction::SecondaryClick,
+            InputBinding::Mouse(MouseButton::Right),
         );
-        map.insert(
-            Confirm,
-            vec![Key(KeyCode::Enter), Key(KeyCode::NumpadEnter)],
+        bindings.insert(InputAction::Cancel, InputBinding::Key(KeyCode::Escape));
+        bindings.insert(InputAction::Confirm, InputBinding::Key(KeyCode::Enter));
+        bindings.insert(InputAction::Rotate, InputBinding::Key(KeyCode::KeyR));
+        bindings.insert(InputAction::QuickSave, InputBinding::Key(KeyCode::F5));
+        bindings.insert(InputAction::QuickLoad, InputBinding::Key(KeyCode::F8));
+        bindings.insert(InputAction::CameraZoomIn, InputBinding::Key(KeyCode::Equal));
+        bindings.insert(InputAction::CameraZoomOut, InputBinding::Key(KeyCode::Minus));
+        bindings.insert(InputAction::ToggleFullscreen, InputBinding::Key(KeyCode::F11));
+        bindings.insert(
+            InputAction::PrintDebugPositions,
+            InputBinding::Key(KeyCode::F1),
         );
-        map.insert(
-            CameraZoomIn,
-            vec![Key(KeyCode::Equal), Key(KeyCode::NumpadAdd)],
-        );
-        map.insert(
-            CameraZoomOut,
-            vec![Key(KeyCode::Minus), Key(KeyCode::NumpadSubtract)],
-        );
-        map.insert(ToggleFullscreen, vec![Key(KeyCode::F11)]);
-        map.insert(PrintDebugPositions, vec![Key(KeyCode::KeyP)]);
-
-        Self { map }
+        bindings
     }
 }
 
 impl InputBindings {
-    pub fn actions(&self) -> impl Iterator<Item = InputAction> + '_ {
-        self.map.keys().copied()
-    }
-
-    pub fn pressed(
-        &self,
-        action: InputAction,
-        keys: &ButtonInput<KeyCode>,
-        mouse: &ButtonInput<MouseButton>,
-    ) -> bool {
-        self.any_binding(action, |binding| match binding {
-            InputBinding::Key(key) => keys.pressed(key),
-            InputBinding::Mouse(button) => mouse.pressed(button),
-        })
+    pub fn insert(&mut self, action: InputAction, binding: InputBinding) {
+        self.map.entry(action).or_default().push(binding);
     }
 
     pub fn just_pressed(
@@ -86,9 +90,25 @@ impl InputBindings {
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.any_binding(action, |binding| match binding {
-            InputBinding::Key(key) => keys.just_pressed(key),
-            InputBinding::Mouse(button) => mouse.just_pressed(button),
+        self.map.get(&action).map_or(false, |bindings| {
+            bindings.iter().any(|b| match b {
+                InputBinding::Key(k) => keys.just_pressed(*k),
+                InputBinding::Mouse(m) => mouse.just_pressed(*m),
+            })
+        })
+    }
+
+    pub fn pressed(
+        &self,
+        action: InputAction,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+    ) -> bool {
+        self.map.get(&action).map_or(false, |bindings| {
+            bindings.iter().any(|b| match b {
+                InputBinding::Key(k) => keys.pressed(*k),
+                InputBinding::Mouse(m) => mouse.pressed(*m),
+            })
         })
     }
 
@@ -98,37 +118,12 @@ impl InputBindings {
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.any_binding(action, |binding| match binding {
-            InputBinding::Key(key) => keys.just_released(key),
-            InputBinding::Mouse(button) => mouse.just_released(button),
+        self.map.get(&action).map_or(false, |bindings| {
+            bindings.iter().any(|b| match b {
+                InputBinding::Key(k) => keys.just_released(*k),
+                InputBinding::Mouse(m) => mouse.just_released(*m),
+            })
         })
-    }
-
-    fn any_binding(&self, action: InputAction, predicate: impl Fn(InputBinding) -> bool) -> bool {
-        self.map
-            .get(&action)
-            .is_some_and(|bindings| bindings.iter().copied().any(predicate))
-    }
-}
-
-#[derive(Resource, Debug, Clone, Default)]
-pub struct InputActionState {
-    pressed: HashSet<InputAction>,
-    just_pressed: HashSet<InputAction>,
-    just_released: HashSet<InputAction>,
-}
-
-impl InputActionState {
-    pub fn pressed(&self, action: InputAction) -> bool {
-        self.pressed.contains(&action)
-    }
-
-    pub fn just_pressed(&self, action: InputAction) -> bool {
-        self.just_pressed.contains(&action)
-    }
-
-    pub fn just_released(&self, action: InputAction) -> bool {
-        self.just_released.contains(&action)
     }
 }
 
@@ -136,8 +131,8 @@ pub struct InputActionsPlugin;
 
 impl Plugin for InputActionsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<InputBindings>()
-            .init_resource::<InputActionState>()
+        app.init_resource::<InputActionState>()
+            .init_resource::<InputBindings>()
             .add_systems(PreUpdate, update_input_action_state);
     }
 }
@@ -152,7 +147,7 @@ pub fn update_input_action_state(
     state.just_pressed.clear();
     state.just_released.clear();
 
-    for action in bindings.actions() {
+    for &action in bindings.map.keys() {
         if bindings.pressed(action, &keys, &mouse) {
             state.pressed.insert(action);
         }
