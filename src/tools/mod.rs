@@ -329,7 +329,7 @@ pub fn handle_domain_event_selection_cleanup(
         if let crate::store::events::DomainEvent::ObjectDeleted { id } = event {
             if let Some(selected_entity) = selection.primary {
                 if let Ok((_, stable_id)) = stable_ids.get(selected_entity) {
-                    if &stable_id.0 == id {
+                    if stable_id.0 == *id {
                         info!("Clearing selection for deleted object {:?}", id);
                         selection.primary = None;
                     }
