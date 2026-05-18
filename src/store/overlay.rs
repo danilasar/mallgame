@@ -8,6 +8,7 @@ use crate::store::{
     validate_chunk_purchase,
 };
 use crate::tools::{ActiveToolSession, NonInteractive, ToolMode, ToolSessionState};
+use bevy::ecs::system::SystemParam;
 
 #[derive(Component, Debug, Clone, Copy)]
 #[allow(dead_code)]
@@ -37,43 +38,47 @@ impl Plugin for StoreOverlayPlugin {
     }
 }
 
-fn update_store_chunk_overlays(
-    mut commands: Commands,
-    mode: Res<State<ToolMode>>,
-    store: Option<Res<StoreArea>>,
-    world: Option<Res<WorldBounds>>,
-    session: Res<ToolSessionState>,
-    projection: Res<IsoProjection>,
-    overlays: Query<Entity, With<StoreChunkOverlaySegment>>,
-) {
-    for entity in &overlays {
-        commands.entity(entity).despawn();
+#[allow(clippy::type_complexity)]
+#[derive(SystemParam)]
+struct StoreOverlayParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    mode: Res<'w, State<ToolMode>>,
+    store: Option<Res<'w, StoreArea>>,
+    world: Option<Res<'w, WorldBounds>>,
+    session: Res<'w, ToolSessionState>,
+    projection: Res<'w, IsoProjection>,
+    overlays: Query<'w, 's, Entity, With<StoreChunkOverlaySegment>>,
+}
+
+fn update_store_chunk_overlays(mut params: StoreOverlayParams) {
+    for entity in &params.overlays {
+        params.commands.entity(entity).despawn();
     }
 
-    let (Some(store), Some(world)) = (store, world) else {
+    let (Some(store), Some(world)) = (params.store.as_deref(), params.world.as_deref()) else {
         return;
     };
 
     // Отрисовка купленной территории как "Белой сетки"
     for coord in store.owned_chunks.keys().copied() {
         spawn_chunk_outline(
-            &mut commands,
-            &store,
+            &mut params.commands,
+            store,
             coord,
             StoreChunkOverlayKind::Owned,
             Color::srgba(1.0, 1.0, 1.0, 0.25),
             2.0,
             SortLayer::StoreOverlay.base_z(),
-            *projection,
+            *params.projection,
         );
     }
 
-    if *mode.get() != ToolMode::Expansion {
+    if *params.mode.get() != ToolMode::Expansion {
         return;
     }
 
     let (hovered_chunk, hovered_valid) =
-        if let Some(ActiveToolSession::Expansion(exp)) = &session.active {
+        if let Some(ActiveToolSession::Expansion(exp)) = &params.session.active {
             (
                 exp.hovered_coord,
                 exp.validation.as_ref().is_some_and(|v| v.valid),
@@ -82,7 +87,7 @@ fn update_store_chunk_overlays(
             (None, false)
         };
 
-    for coord in available_expansion_chunks(&world, &store) {
+    for coord in available_expansion_chunks(world, store) {
         let (kind, color, thickness, z) = if hovered_chunk == Some(coord) && hovered_valid {
             (
                 StoreChunkOverlayKind::HoveredAvailable,
@@ -99,14 +104,14 @@ fn update_store_chunk_overlays(
             )
         };
         spawn_chunk_outline(
-            &mut commands,
-            &store,
+            &mut params.commands,
+            store,
             coord,
             kind,
             color,
             thickness,
             z,
-            *projection,
+            *params.projection,
         );
     }
 }

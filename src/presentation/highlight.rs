@@ -2,27 +2,31 @@ use bevy::prelude::*;
 
 use crate::objects::components::*;
 use crate::tools::{PlacementPreview, PreviewSource, SelectionState, ToolContext, ToolMode};
+use bevy::ecs::system::SystemParam;
 
 #[allow(clippy::type_complexity)]
-pub fn update_highlight_intents(
-    mut commands: Commands,
-    mode: Res<State<ToolMode>>,
-    tool: Res<ToolContext>,
-    session: Res<crate::tools::ToolSessionState>,
-    selection: Res<SelectionState>,
-    query: Query<(Entity, Option<&Movable>, Option<&Deletable>), With<Interactive>>,
-) {
-    for (entity, movable, deletable) in &query {
-        let mut highlight_kind = None;
-        let is_selected = selection.primary == Some(entity);
+#[derive(SystemParam)]
+pub(crate) struct HighlightIntentParams<'w, 's> {
+    commands: Commands<'w, 's>,
+    mode: Res<'w, State<ToolMode>>,
+    tool: Res<'w, ToolContext>,
+    session: Res<'w, crate::tools::ToolSessionState>,
+    selection: Res<'w, SelectionState>,
+    query: Query<'w, 's, (Entity, Option<&'static Movable>, Option<&'static Deletable>), With<Interactive>>,
+}
 
-        match *mode.get() {
+pub fn update_highlight_intents(mut params: HighlightIntentParams) {
+    for (entity, movable, deletable) in &params.query {
+        let mut highlight_kind = None;
+        let is_selected = params.selection.primary == Some(entity);
+
+        match *params.mode.get() {
             ToolMode::Move => {
-                if let Some(crate::tools::ActiveToolSession::Move(move_session)) = &session.active {
+                if let Some(crate::tools::ActiveToolSession::Move(move_session)) = &params.session.active {
                     if move_session.source_entity == entity {
                         // source of current move is not highlighted by normal hover/selection logic
                     }
-                } else if tool.hovered_entity == Some(entity) {
+                } else if params.tool.hovered_entity == Some(entity) {
                     if movable.is_some() {
                         highlight_kind = Some(HighlightKind::Hover);
                     }
@@ -31,12 +35,12 @@ pub fn update_highlight_intents(
                 }
             }
             ToolMode::Delete => {
-                if tool.hovered_entity == Some(entity) && deletable.is_some() {
+                if params.tool.hovered_entity == Some(entity) && deletable.is_some() {
                     highlight_kind = Some(HighlightKind::DeleteDanger);
                 }
             }
             _ => {
-                if tool.hovered_entity == Some(entity) {
+                if params.tool.hovered_entity == Some(entity) {
                     highlight_kind = Some(HighlightKind::Hover);
                 } else if is_selected {
                     highlight_kind = Some(HighlightKind::Selected);
@@ -45,27 +49,32 @@ pub fn update_highlight_intents(
         }
 
         if let Some(kind) = highlight_kind {
-            commands.entity(entity).insert(HighlightIntent { kind });
+            params.commands.entity(entity).insert(HighlightIntent { kind });
         } else {
-            commands.entity(entity).remove::<HighlightIntent>();
+            params.commands.entity(entity).remove::<HighlightIntent>();
         }
     }
 }
 
 #[allow(clippy::type_complexity)]
-pub fn update_highlight_visuals(
-    mut query: Query<
+#[derive(SystemParam)]
+pub(crate) struct HighlightVisualParams<'w, 's> {
+    query: Query<
+        'w,
+        's,
         (
-            Option<&HighlightIntent>,
-            Option<&PlacementPreview>,
-            Option<&PreviewSource>,
-            &mut Sprite,
+            Option<&'static HighlightIntent>,
+            Option<&'static PlacementPreview>,
+            Option<&'static PreviewSource>,
+            &'static mut Sprite,
         ),
         Without<crate::presentation::FootprintOutlineSegment>,
     >,
-    _tool: Res<ToolContext>,
-) {
-    for (highlight, placement_preview, preview_source, mut sprite) in &mut query {
+    _tool: Res<'w, ToolContext>,
+}
+
+pub fn update_highlight_visuals(mut params: HighlightVisualParams) {
+    for (highlight, placement_preview, preview_source, mut sprite) in &mut params.query {
         let base_color = match highlight.map(|intent| intent.kind) {
             Some(HighlightKind::MoveInvalid | HighlightKind::BuildInvalid) => {
                 Color::srgba(1.0, 0.32, 0.28, 0.82)
