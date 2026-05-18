@@ -179,6 +179,45 @@ pub enum ObjectCapabilitySpec {
     Window(WindowSpec),
     Doorway(DoorwaySpec),
     DoorMovable,
+    WallOpening(WallOpeningSpec),
+}
+
+/// Prototype-level opening spec. Determines the visible cutout in the wall surface.
+/// Explicit opt-in: only prototypes with this capability create wall openings.
+#[derive(Debug, Clone)]
+pub struct WallOpeningSpec {
+    pub shape: WallOpeningShapeSpec,
+    /// Tint of the translucent glass quad drawn over the opening. `None` = no glass.
+    pub glass_color: Option<Color>,
+    /// Tint of the opaque frame quad drawn over the glass. `None` = no frame.
+    #[allow(dead_code)]
+    pub frame_color: Option<Color>,
+}
+
+/// Shape of the wall opening in prototype definition.
+#[derive(Debug, Clone)]
+pub enum WallOpeningShapeSpec {
+    Rect {
+        width: f32,
+        height: f32,
+        anchor: WallOpeningAnchor,
+    },
+    /// Reserved for a future polygon backend.
+    /// `validate_object_catalog` rejects this variant in Stage 5B.6.
+    #[allow(dead_code)]
+    Polygon {
+        vertices: Vec<Vec2>,
+        anchor: WallOpeningAnchor,
+    },
+}
+
+/// Controls how `height_on_wall` maps to the opening's vertical bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallOpeningAnchor {
+    /// Opening is centred at `attachment.height_on_wall`.
+    Center,
+    /// Bottom of the opening sits at `attachment.height_on_wall` (use for floor-level doors).
+    BottomCenter,
 }
 
 #[derive(Debug, Clone)]
@@ -471,6 +510,30 @@ pub fn spawn_store_object_from_prototype(
             ObjectCapabilitySpec::DoorMovable => {
                 entity_commands.insert(DoorMovable);
             }
+            ObjectCapabilitySpec::WallOpening(spec) => {
+                if let ObjectPlacement::WallMounted { attachment } = placement {
+                    if let Ok(rect) =
+                        crate::store::boundary::opening::derive_opening_rect(
+                            attachment.offset_along_segment,
+                            attachment.height_on_wall,
+                            spec,
+                        )
+                    {
+                        entity_commands.insert(WallOpeningComponent {
+                            segment_key: attachment.segment_key,
+                            offset_min: rect.offset_min,
+                            offset_max: rect.offset_max,
+                            height_min: rect.height_min,
+                            height_max: rect.height_max,
+                            glass_color: spec.glass_color,
+                            frame_color: spec.frame_color,
+                        });
+                    }
+                    // Err(UnsupportedShape): catalog validation already rejects Polygon,
+                    // so this path is unreachable for valid prototypes. Object spawns
+                    // without WallOpeningComponent rather than panicking.
+                }
+            }
         }
     }
 
@@ -531,12 +594,23 @@ pub fn normalize_wall_attachment_for_prototype(
     attachment
 }
 
+pub fn wall_opening_spec(proto: &ObjectPrototype) -> Option<&WallOpeningSpec> {
+    proto.capabilities.iter().find_map(|cap| {
+        if let ObjectCapabilitySpec::WallOpening(s) = cap {
+            Some(s)
+        } else {
+            None
+        }
+    })
+}
+
 pub fn wall_occupancy_kind_for_prototype(proto: &ObjectPrototype) -> WallOccupancyKind {
-    if proto
-        .capabilities
-        .iter()
-        .any(|cap| matches!(cap, ObjectCapabilitySpec::Window(_)))
-    {
+    if proto.capabilities.iter().any(|cap| {
+        matches!(
+            cap,
+            ObjectCapabilitySpec::Window(_) | ObjectCapabilitySpec::WallOpening(_)
+        )
+    }) {
         WallOccupancyKind::Opening
     } else {
         WallOccupancyKind::DecorativeOverlay
@@ -881,7 +955,7 @@ pub fn setup_object_catalog(mut commands: Commands) {
                 asset_path: "tree.png".to_string(),
                 asset_id: "wall_window_basic_visual".to_string(),
                 sprite_size: Vec2::new(72.0, 72.0),
-                foot_anchor: Vec2::new(0.0, -24.0),
+                foot_anchor: Vec2::new(0.0, -36.0),
                 sort_bias: 0.1,
             },
             rotation: RotationSpec {
@@ -906,6 +980,15 @@ pub fn setup_object_catalog(mut commands: Commands) {
                     width: 72.0,
                     height: 72.0,
                     glass_alpha: 0.45,
+                }),
+                ObjectCapabilitySpec::WallOpening(WallOpeningSpec {
+                    shape: WallOpeningShapeSpec::Rect {
+                        width: 72.0,
+                        height: 72.0,
+                        anchor: WallOpeningAnchor::BottomCenter,
+                    },
+                    glass_color: Some(Color::srgba(0.75, 0.90, 1.0, 0.45)),
+                    frame_color: None,
                 }),
             ],
             initial_state: ObjectInitialStateSpec::None,
@@ -963,6 +1046,15 @@ pub fn setup_object_catalog(mut commands: Commands) {
                     kind: crate::objects::components::DoorwayKind::CustomerEntrance,
                 }),
                 ObjectCapabilitySpec::DoorMovable,
+                ObjectCapabilitySpec::WallOpening(WallOpeningSpec {
+                    shape: WallOpeningShapeSpec::Rect {
+                        width: 64.0,
+                        height: 96.0,
+                        anchor: WallOpeningAnchor::BottomCenter,
+                    },
+                    glass_color: None,
+                    frame_color: None,
+                }),
             ],
             initial_state: ObjectInitialStateSpec::None,
         },
@@ -1090,6 +1182,36 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                             "Prototype {:?} has Window capability without WallMounted spec",
                             proto.id
                         ));
+                    }
+                }
+                ObjectCapabilitySpec::WallOpening(spec) => {
+                    if proto.placement.kind != PlacementKind::WallMounted {
+                        errors.push(format!(
+                            "Prototype {:?} has WallOpening capability but is not wall-mounted",
+                            proto.id
+                        ));
+                    }
+                    if wall_mounted_spec(proto).is_none() {
+                        errors.push(format!(
+                            "Prototype {:?} has WallOpening capability without WallMounted spec",
+                            proto.id
+                        ));
+                    }
+                    match &spec.shape {
+                        WallOpeningShapeSpec::Rect { width, height, .. } => {
+                            if *width <= 0.0 || *height <= 0.0 {
+                                errors.push(format!(
+                                    "Prototype {:?} has WallOpening with zero or negative Rect dimensions",
+                                    proto.id
+                                ));
+                            }
+                        }
+                        WallOpeningShapeSpec::Polygon { .. } => {
+                            errors.push(format!(
+                                "Prototype {:?} has WallOpening with Polygon shape, which is not supported in Stage 5B.6",
+                                proto.id
+                            ));
+                        }
                     }
                 }
                 _ => {}

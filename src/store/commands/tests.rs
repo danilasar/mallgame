@@ -6,6 +6,7 @@ fn setup_test_app() -> App {
     app.add_plugins(AssetPlugin::default());
     app.init_asset::<Image>();
     app.init_resource::<DomainCommandQueue>();
+    app.init_resource::<crate::store::boundary::DirtyWallOpeningSegments>();
     register_test_messages(&mut app);
 
     app.insert_resource(crate::store::WorldBounds {

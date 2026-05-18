@@ -38,6 +38,7 @@ fn test_save_load_restores_capabilities() {
     // Mock resources for apply_load_plan
     app.insert_resource(StoreArea::new(Vec2::ZERO));
     app.insert_resource(StableObjectIdAllocator { next: 1 });
+    app.init_resource::<crate::store::boundary::DirtyWallOpeningSegments>();
 
     // Simpler way in App tests: run it as a system
     app.world_mut().insert_resource(plan);
@@ -49,6 +50,7 @@ fn test_save_load_restores_capabilities() {
          mut allocator: ResMut<StableObjectIdAllocator>,
          catalog: Res<ObjectCatalog>,
          query: Query<Entity, With<StoreObject>>,
+         mut dirty_openings: ResMut<crate::store::boundary::DirtyWallOpeningSegments>,
          plan_res: Res<LoadPlan>| {
             apply_load_plan(
                 &mut commands,
@@ -58,6 +60,7 @@ fn test_save_load_restores_capabilities() {
                 &catalog,
                 &query,
                 &WorldBounds::default(),
+                &mut dirty_openings,
                 plan_res.clone(),
             );
         },
@@ -121,6 +124,7 @@ fn test_save_load_restores_wall_mounted_object() {
 
     app.insert_resource(StoreArea::new(Vec2::ZERO));
     app.insert_resource(StableObjectIdAllocator { next: 1 });
+    app.init_resource::<crate::store::boundary::DirtyWallOpeningSegments>();
     app.world_mut().insert_resource(plan);
     app.add_systems(
         Update,
@@ -130,6 +134,7 @@ fn test_save_load_restores_wall_mounted_object() {
          mut allocator: ResMut<StableObjectIdAllocator>,
          catalog: Res<ObjectCatalog>,
          query: Query<Entity, With<StoreObject>>,
+         mut dirty_openings: ResMut<crate::store::boundary::DirtyWallOpeningSegments>,
          plan_res: Res<LoadPlan>| {
             apply_load_plan(
                 &mut commands,
@@ -139,6 +144,7 @@ fn test_save_load_restores_wall_mounted_object() {
                 &catalog,
                 &query,
                 &WorldBounds::default(),
+                &mut dirty_openings,
                 plan_res.clone(),
             );
         },
@@ -247,6 +253,7 @@ fn test_save_load_restores_doorway_with_derived_access_zone() {
 
     app.insert_resource(StoreArea::new(Vec2::ZERO));
     app.insert_resource(StableObjectIdAllocator { next: 1 });
+    app.init_resource::<crate::store::boundary::DirtyWallOpeningSegments>();
     app.world_mut().insert_resource(plan);
     app.add_systems(
         Update,
@@ -256,6 +263,7 @@ fn test_save_load_restores_doorway_with_derived_access_zone() {
          mut allocator: ResMut<StableObjectIdAllocator>,
          catalog: Res<ObjectCatalog>,
          query: Query<Entity, With<StoreObject>>,
+         mut dirty_openings: ResMut<crate::store::boundary::DirtyWallOpeningSegments>,
          plan_res: Res<LoadPlan>| {
             apply_load_plan(
                 &mut commands,
@@ -265,6 +273,7 @@ fn test_save_load_restores_doorway_with_derived_access_zone() {
                 &catalog,
                 &query,
                 &WorldBounds::default(),
+                &mut dirty_openings,
                 plan_res.clone(),
             );
         },

@@ -109,6 +109,7 @@ struct QuickLoadParams<'w, 's> {
     drag: ResMut<'w, crate::input::PointerDragState>,
     command_queue: ResMut<'w, crate::store::commands::DomainCommandQueue>,
     wall_cache: ResMut<'w, crate::store::WallVisualCache>,
+    dirty_openings: ResMut<'w, crate::store::boundary::DirtyWallOpeningSegments>,
     runtime_owned: Query<'w, 's, Entity, With<crate::objects::components::RuntimeOwned>>,
 }
 
@@ -148,6 +149,7 @@ fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: Quick
                     );
                     clear_runtime_owned(&mut p.commands, runtime_owned_entities);
                     crate::store::clear_wall_cache(&mut p.wall_cache);
+                    p.dirty_openings.dirty.clear();
 
                     let report = apply_load_plan(
                         &mut p.commands,
@@ -157,6 +159,7 @@ fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: Quick
                         &p.catalog,
                         &p.existing_objects,
                         &p.world_bounds,
+                        &mut p.dirty_openings,
                         plan,
                     );
 

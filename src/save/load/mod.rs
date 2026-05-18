@@ -4,10 +4,11 @@ use crate::objects::components::{
 };
 use crate::objects::prototypes::{
     BuildRibbonTab, BuildSelectionState, ObjectCatalog, SpawnStoreObjectParams,
-    spawn_store_object_from_prototype,
+    spawn_store_object_from_prototype, wall_opening_spec,
 };
 use crate::save::types::*;
 use crate::save::validation::*;
+use crate::store::boundary::DirtyWallOpeningSegments;
 use crate::store::{StoreArea, StoreChunkData, WallSegmentKey, WorldBounds};
 use crate::tools::{
     PrimaryPointerCycle, ToolInputGate, ToolMode, ToolReturnState, ToolSessionState,
@@ -182,6 +183,7 @@ pub fn apply_load_plan(
     catalog: &ObjectCatalog,
     existing_objects: &Query<Entity, With<StoreObject>>,
     world_bounds: &WorldBounds,
+    dirty_openings: &mut DirtyWallOpeningSegments,
     plan: LoadPlan,
 ) -> LoadReport {
     // 1. Clear existing objects
@@ -256,6 +258,16 @@ pub fn apply_load_plan(
                 },
             ) {
                 loaded_count += 1;
+                if let ObjectPlacement::WallMounted { attachment } = placement {
+                    if catalog
+                        .prototypes
+                        .get(&obj.prototype_id)
+                        .and_then(wall_opening_spec)
+                        .is_some()
+                    {
+                        dirty_openings.dirty.insert(attachment.segment_key);
+                    }
+                }
             }
         }
     }

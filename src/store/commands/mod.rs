@@ -2,12 +2,14 @@
 mod tests;
 
 use crate::objects::components::{
-    InteriorAccessZone, ObjectPlacement, ObjectStableId, StableObjectId, Wallprint,
-    derive_wallprint, wallprints_conflict,
+    InteriorAccessZone, ObjectPlacement, ObjectStableId, StableObjectId, WallMountedPlacement,
+    Wallprint, derive_wallprint, wallprints_conflict,
 };
 use crate::objects::prototypes::{
     BuildObjectId, ObjectCatalog, wall_mounted_spec, wall_occupancy_kind_for_prototype,
+    wall_opening_spec,
 };
+use crate::store::boundary::DirtyWallOpeningSegments;
 use crate::store::chunks::{StoreChunkCoord, StoreChunkKind};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -185,6 +187,15 @@ pub struct DomainCommandApplyParams<'w, 's> {
             Query<'w, 's, &'static crate::store::WallSurface>,
         ),
     >,
+    pub dirty_openings: ResMut<'w, DirtyWallOpeningSegments>,
+    pub wall_mounted_ids: Query<
+        'w,
+        's,
+        (
+            &'static ObjectStableId,
+            &'static WallMountedPlacement,
+        ),
+    >,
 }
 
 pub fn apply_domain_commands(params: DomainCommandApplyParams) {
@@ -200,6 +211,8 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
         _allocator,
         wallprints,
         access_zones,
+        mut dirty_openings,
+        wall_mounted_ids,
         mut set,
     } = params;
 
@@ -208,21 +221,44 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
         lookup.insert(stable_id.0, entity);
     }
 
+    // Build map: StableObjectId → WallSegmentKey for dirty-marking on move/delete.
+    let wall_segment_by_id: std::collections::HashMap<StableObjectId, _> = wall_mounted_ids
+        .iter()
+        .map(|(sid, placement)| (sid.0, placement.attachment.segment_key))
+        .collect();
+
     while let Some(command) = queue.commands.pop_front() {
         let result = match &command {
-            DomainCommand::BuildObject(c) => apply_build_object(
-                c,
-                &mut commands,
-                &asset_server,
-                &catalog,
-                &world_bounds,
-                &store,
-                &wallprints,
-                &access_zones,
-                &mut set,
-            ),
+            DomainCommand::BuildObject(c) => {
+                let result = apply_build_object(
+                    c,
+                    &mut commands,
+                    &asset_server,
+                    &catalog,
+                    &world_bounds,
+                    &store,
+                    &wallprints,
+                    &access_zones,
+                    &mut set,
+                );
+                // Mark segment dirty if build succeeded and prototype has WallOpening
+                if matches!(result, DomainCommandResult::Applied { .. }) {
+                    if let ObjectPlacement::WallMounted { attachment } = c.placement {
+                        if catalog
+                            .prototypes
+                            .get(&c.prototype_id)
+                            .and_then(wall_opening_spec)
+                            .is_some()
+                        {
+                            dirty_openings.dirty.insert(attachment.segment_key);
+                        }
+                    }
+                }
+                result
+            }
             DomainCommand::MoveObject(c) => {
-                if let Some(&entity) = lookup.get(&c.object_id) {
+                let old_segment = wall_segment_by_id.get(&c.object_id).copied();
+                let result = if let Some(&entity) = lookup.get(&c.object_id) {
                     apply_move_object(
                         c,
                         entity,
@@ -238,7 +274,29 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
                     DomainCommandResult::Rejected {
                         reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id },
                     }
+                };
+                // Mark old and new segments dirty if move succeeded and object has WallOpening
+                if matches!(result, DomainCommandResult::Applied { .. }) {
+                    let proto = lookup
+                        .get(&c.object_id)
+                        .and_then(|_| {
+                            set.p2()
+                                .iter()
+                                .find(|(_, sid, _)| sid.0 == c.object_id)
+                                .map(|(_, _, pid)| pid.0.clone())
+                        })
+                        .and_then(|pid| catalog.prototypes.get(&pid));
+                    let has_opening = proto.and_then(wall_opening_spec).is_some();
+                    if has_opening {
+                        if let Some(key) = old_segment {
+                            dirty_openings.dirty.insert(key);
+                        }
+                        if let ObjectPlacement::WallMounted { attachment } = c.new_placement {
+                            dirty_openings.dirty.insert(attachment.segment_key);
+                        }
+                    }
                 }
+                result
             }
             DomainCommand::RotateObject(c) => {
                 if let Some(&entity) = lookup.get(&c.object_id) {
@@ -249,7 +307,17 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
                     }
                 }
             }
-            DomainCommand::DeleteObject(c) => apply_delete_object(c, &mut commands, &lookup),
+            DomainCommand::DeleteObject(c) => {
+                let old_segment = wall_segment_by_id.get(&c.object_id).copied();
+                let result = apply_delete_object(c, &mut commands, &lookup);
+                // Mark segment dirty if delete succeeded (any wall-mounted delete is cheap to rebuild)
+                if matches!(result, DomainCommandResult::Applied { .. }) {
+                    if let Some(key) = old_segment {
+                        dirty_openings.dirty.insert(key);
+                    }
+                }
+                result
+            }
             DomainCommand::PurchaseChunk(c) => apply_purchase_chunk(c, &world_bounds, &mut store),
         };
 
@@ -618,6 +686,7 @@ fn apply_move_object(
             let attachment = crate::objects::prototypes::normalize_wall_attachment_for_prototype(
                 proto, attachment,
             );
+
             let effective_placement = ObjectPlacement::WallMounted { attachment };
 
             // 2. Derive new wallprint
@@ -702,6 +771,25 @@ fn apply_move_object(
                             placement: effective_placement,
                         },
                     ));
+                    if let Some(opening_spec) = wall_opening_spec(proto) {
+                        if let Ok(rect) =
+                            crate::store::boundary::opening::derive_opening_rect(
+                                attachment.offset_along_segment,
+                                attachment.height_on_wall,
+                                opening_spec,
+                            )
+                        {
+                            e.insert(crate::objects::components::WallOpeningComponent {
+                                segment_key: attachment.segment_key,
+                                offset_min: rect.offset_min,
+                                offset_max: rect.offset_max,
+                                height_min: rect.height_min,
+                                height_max: rect.height_max,
+                                glass_color: opening_spec.glass_color,
+                                frame_color: opening_spec.frame_color,
+                            });
+                        }
+                    }
                 }
             } else {
                 let new_wallprint =
@@ -742,7 +830,25 @@ fn apply_move_object(
                             placement: effective_placement,
                         },
                     ));
-
+                    if let Some(opening_spec) = wall_opening_spec(proto) {
+                        if let Ok(rect) =
+                            crate::store::boundary::opening::derive_opening_rect(
+                                attachment.offset_along_segment,
+                                attachment.height_on_wall,
+                                opening_spec,
+                            )
+                        {
+                            e.insert(crate::objects::components::WallOpeningComponent {
+                                segment_key: attachment.segment_key,
+                                offset_min: rect.offset_min,
+                                offset_max: rect.offset_max,
+                                height_min: rect.height_min,
+                                height_max: rect.height_max,
+                                glass_color: opening_spec.glass_color,
+                                frame_color: opening_spec.frame_color,
+                            });
+                        }
+                    }
                     if let Some(hit) = set.p3().iter().find(|s| s.key == attachment.segment_key) {
                         let v_pos = crate::store::wall_surface_world_pos(
                             hit,

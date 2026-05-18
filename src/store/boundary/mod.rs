@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests;
+pub mod opening;
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::Indices;
@@ -10,8 +11,9 @@ use std::collections::{HashMap, HashSet};
 use crate::objects::components::{
     AccessZoneReason, DerivedDoorPlacement, InteractionRole, Interactive, InteriorAccessZone,
     RuntimeOwned, RuntimeOwner, SortLayer, VisualOffset, WallAttachmentPoint, WallMounted,
-    WallOccupancyKind, WorldPos, derive_wallprint,
+    WallOccupancyKind, WallOpeningComponent, WorldPos, derive_wallprint,
 };
+use crate::tools::NonInteractive;
 use crate::presentation::{IsoProjection, world_to_iso};
 use crate::store::{StoreArea, StoreChunkCoord, StoreExpansionPolicy, WorldBounds};
 
@@ -60,9 +62,35 @@ pub struct WallSurface {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct WallVisual;
 
+/// Marker for a rendered wall visual piece (Mesh2d, NonInteractive).
+/// One or more per wall segment depending on openings.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct WallVisualPiece {
+    #[allow(dead_code)]
+    pub key: WallSegmentKey,
+}
+
+/// Kind of a wall visual piece for future material/z differentiation.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallPieceKind {
+    Solid,
+    Glass,
+    #[allow(dead_code)]
+    Frame,
+}
+
+/// Dirty set: segments that need their visual pieces rebuilt this frame.
+#[derive(Resource, Debug, Default)]
+pub struct DirtyWallOpeningSegments {
+    pub dirty: HashSet<WallSegmentKey>,
+}
+
 #[derive(Resource, Debug, Default)]
 pub struct WallVisualCache {
-    pub entities_by_key: HashMap<WallSegmentKey, Entity>,
+    /// Surface entity per segment (WallSurface + Interactive, no Mesh2d).
+    pub surface_by_key: HashMap<WallSegmentKey, Entity>,
+    /// Visual piece entities per segment (Mesh2d + NonInteractive).
+    pub pieces_by_key: HashMap<WallSegmentKey, Vec<Entity>>,
     pub initialized: bool,
 }
 
@@ -70,12 +98,18 @@ pub struct StoreBoundaryPlugin;
 
 impl Plugin for StoreBoundaryPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WallVisualCache>().add_systems(
-            Update,
-            (sync_store_boundaries, sync_wall_mounted_object_positions)
-                .chain()
-                .in_set(crate::store::commands::DomainCommandSet::PostDomainApply),
-        );
+        app.init_resource::<WallVisualCache>()
+            .init_resource::<DirtyWallOpeningSegments>()
+            .add_systems(
+                Update,
+                (
+                    sync_store_boundaries,
+                    rebuild_dirty_wall_visuals,
+                    sync_wall_mounted_object_positions,
+                )
+                    .chain()
+                    .in_set(crate::store::commands::DomainCommandSet::PostDomainApply),
+            );
     }
 }
 
@@ -85,10 +119,8 @@ struct StoreBoundaryParams<'w, 's> {
     commands: Commands<'w, 's>,
     store: Res<'w, StoreArea>,
     world: Res<'w, WorldBounds>,
-    projection: Res<'w, IsoProjection>,
     cache: ResMut<'w, WallVisualCache>,
-    meshes: ResMut<'w, Assets<Mesh>>,
-    materials: ResMut<'w, Assets<ColorMaterial>>,
+    dirty: ResMut<'w, DirtyWallOpeningSegments>,
 }
 
 pub fn wall_surface_visual_offset(
@@ -135,20 +167,20 @@ fn sync_wall_mounted_object_positions(
 fn sync_store_boundaries(mut params: StoreBoundaryParams) {
     if !params.cache.initialized || params.store.is_changed() || params.world.is_changed() {
         let expected = collect_boundary_segments(&params.store, &params.world);
-        sync_wall_cache(
+        sync_wall_surface_cache(
             &mut params.commands,
             &mut params.cache,
-            &mut params.meshes,
-            &mut params.materials,
+            &mut params.dirty,
             expected,
-            *params.projection,
         );
         params.cache.initialized = true;
     }
 }
 
+/// Clear the wall cache on world reset. Entities are despawned via RuntimeOwned cleanup elsewhere.
 pub fn clear_wall_cache(cache: &mut WallVisualCache) {
-    cache.entities_by_key.clear();
+    cache.surface_by_key.clear();
+    cache.pieces_by_key.clear();
     cache.initialized = false;
 }
 
@@ -297,92 +329,48 @@ fn boundary_line_segments(
     segments
 }
 
-fn sync_wall_cache(
+fn sync_wall_surface_cache(
     commands: &mut Commands,
     cache: &mut WallVisualCache,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<ColorMaterial>,
+    dirty: &mut DirtyWallOpeningSegments,
     expected: Vec<StoreBoundarySegment>,
-    projection: IsoProjection,
 ) {
     let expected_keys: HashSet<_> = expected.iter().map(|segment| segment.key).collect();
 
     let stale_keys: Vec<_> = cache
-        .entities_by_key
+        .surface_by_key
         .keys()
         .copied()
         .filter(|key| !expected_keys.contains(key))
         .collect();
 
     for key in stale_keys {
-        if let Some(entity) = cache.entities_by_key.remove(&key) {
+        if let Some(entity) = cache.surface_by_key.remove(&key) {
             commands.entity(entity).try_despawn();
+        }
+        // Despawn stale visual pieces; dirty marking not needed (segment gone)
+        for piece in cache.pieces_by_key.remove(&key).unwrap_or_default() {
+            commands.entity(piece).try_despawn();
         }
     }
 
     for segment in expected {
-        if cache.entities_by_key.contains_key(&segment.key) {
+        if cache.surface_by_key.contains_key(&segment.key) {
             continue;
         }
 
-        let entity = spawn_wall_segment(commands, meshes, materials, segment, projection);
-        cache.entities_by_key.insert(segment.key, entity);
+        let entity = spawn_wall_surface_entity(commands, segment);
+        cache.surface_by_key.insert(segment.key, entity);
+        // Mark dirty so rebuild_dirty_wall_visuals spawns the initial visual pieces
+        dirty.dirty.insert(segment.key);
     }
 }
 
-fn spawn_wall_segment(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<ColorMaterial>,
-    segment: StoreBoundarySegment,
-    projection: IsoProjection,
-) -> Entity {
-    let projected_start = world_to_iso(segment.start, projection);
-    let projected_end = world_to_iso(segment.end, projection);
-    let wall_direction = projected_end - projected_start;
-    let wall_normal = if wall_direction.length_squared() > f32::EPSILON {
-        Vec2::new(-wall_direction.y, wall_direction.x).normalize()
-    } else {
-        Vec2::Y
-    };
-    let thickness_offset = wall_normal * segment.thickness;
-
-    let mut mesh = Mesh::new(
-        bevy::render::render_resource::PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    );
-
-    let vertices = vec![
-        [projected_start.x, projected_start.y, 0.0],
-        [projected_end.x, projected_end.y, 0.0],
-        [
-            projected_end.x + thickness_offset.x,
-            projected_end.y + thickness_offset.y + segment.height,
-            0.0,
-        ],
-        [
-            projected_start.x + thickness_offset.x,
-            projected_start.y + thickness_offset.y + segment.height,
-            0.0,
-        ],
-    ];
-
-    let uvs = vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
-
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
-
-    let color = match segment.key.side {
-        StoreBoundarySide::Top => Color::srgba(0.35, 0.25, 0.18, 0.98),
-        StoreBoundarySide::Right => Color::srgba(0.28, 0.18, 0.12, 0.98),
-    };
-
+/// Spawn the logical wall surface entity: WallSurface + picking, NO Mesh2d.
+fn spawn_wall_surface_entity(commands: &mut Commands, segment: StoreBoundarySegment) -> Entity {
     commands
         .spawn((
-            Mesh2d(meshes.add(mesh)),
-            MeshMaterial2d(materials.add(ColorMaterial::from(color))),
-            Transform::from_xyz(0.0, 0.0, SortLayer::WallFace.base_z()),
+            Transform::default(),
             Visibility::Visible,
             StoreWallSegment { key: segment.key },
             WallSurface {
@@ -406,4 +394,287 @@ fn spawn_wall_segment(
             )),
         ))
         .id()
+}
+
+/// Build a Mesh for a rectangular wall piece (sub-rect of a wall segment).
+fn build_wall_piece_mesh(
+    piece: &opening::WallPieceRect,
+    segment: &StoreBoundarySegment,
+    projection: IsoProjection,
+) -> Mesh {
+    let wall_dir_world = if segment.length > f32::EPSILON {
+        (segment.end - segment.start) / segment.length
+    } else {
+        Vec2::X
+    };
+
+    let piece_start_world = segment.start + wall_dir_world * piece.offset_min;
+    let piece_end_world = segment.start + wall_dir_world * piece.offset_max;
+
+    let projected_start = world_to_iso(piece_start_world, projection);
+    let projected_end = world_to_iso(piece_end_world, projection);
+
+    let wall_dir_proj = projected_end - projected_start;
+    let wall_normal_proj = if wall_dir_proj.length_squared() > f32::EPSILON {
+        Vec2::new(-wall_dir_proj.y, wall_dir_proj.x).normalize()
+    } else {
+        Vec2::Y
+    };
+    let thickness_offset = wall_normal_proj * segment.thickness;
+
+    // Thickness is interpolated linearly from 0 at h=0 to full at h=surface_height.
+    // Applying a proportional fraction to bottom vertices ensures adjacent pieces
+    // (e.g. a full-height strip and a piece above an opening) share exact seam corners.
+    let h_inv = 1.0 / segment.height.max(f32::EPSILON);
+    let thick_min = thickness_offset * (piece.height_min * h_inv);
+    let thick_max = thickness_offset * (piece.height_max * h_inv);
+
+    // Four corners: bottom-left, bottom-right, top-right, top-left
+    let bl = projected_start + thick_min + Vec2::new(0.0, piece.height_min);
+    let br = projected_end + thick_min + Vec2::new(0.0, piece.height_min);
+    let tr = projected_end + thick_max + Vec2::new(0.0, piece.height_max);
+    let tl = projected_start + thick_max + Vec2::new(0.0, piece.height_max);
+
+    // UV: u along segment width, v from top (0) to bottom (1) to match original
+    let u_min = piece.offset_min / segment.length.max(f32::EPSILON);
+    let u_max = piece.offset_max / segment.length.max(f32::EPSILON);
+    let v_min = 1.0 - piece.height_max / segment.height.max(f32::EPSILON);
+    let v_max = 1.0 - piece.height_min / segment.height.max(f32::EPSILON);
+
+    let vertices = vec![
+        [bl.x, bl.y, 0.0],
+        [br.x, br.y, 0.0],
+        [tr.x, tr.y, 0.0],
+        [tl.x, tl.y, 0.0],
+    ];
+    let uvs = vec![[u_min, v_max], [u_max, v_max], [u_max, v_min], [u_min, v_min]];
+
+    let mut mesh = Mesh::new(
+        bevy::render::render_resource::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+    mesh
+}
+
+fn right_neighbor_key(key: WallSegmentKey) -> WallSegmentKey {
+    match key.side {
+        StoreBoundarySide::Top => WallSegmentKey {
+            chunk: StoreChunkCoord { x: key.chunk.x + 1, y: key.chunk.y },
+            side: key.side,
+        },
+        StoreBoundarySide::Right => WallSegmentKey {
+            chunk: StoreChunkCoord { x: key.chunk.x, y: key.chunk.y + 1 },
+            side: key.side,
+        },
+    }
+}
+
+fn left_neighbor_key(key: WallSegmentKey) -> WallSegmentKey {
+    match key.side {
+        StoreBoundarySide::Top => WallSegmentKey {
+            chunk: StoreChunkCoord { x: key.chunk.x - 1, y: key.chunk.y },
+            side: key.side,
+        },
+        StoreBoundarySide::Right => WallSegmentKey {
+            chunk: StoreChunkCoord { x: key.chunk.x, y: key.chunk.y - 1 },
+            side: key.side,
+        },
+    }
+}
+
+/// System: rebuild visual piece entities for all dirty wall segments.
+#[allow(clippy::too_many_arguments)]
+fn rebuild_dirty_wall_visuals(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    projection: Res<IsoProjection>,
+    mut cache: ResMut<WallVisualCache>,
+    mut dirty: ResMut<DirtyWallOpeningSegments>,
+    surfaces: Query<&WallSurface>,
+    openings: Query<&WallOpeningComponent>,
+    store: Res<StoreArea>,
+    world: Res<WorldBounds>,
+) {
+    if dirty.dirty.is_empty() {
+        return;
+    }
+
+    let all_segments = collect_boundary_segments(&store, &world);
+    let seg_len_by_key: HashMap<WallSegmentKey, f32> =
+        all_segments.iter().map(|s| (s.key, s.length)).collect();
+
+    let initial_dirty: HashSet<WallSegmentKey> = dirty.dirty.drain().collect();
+
+    // Expand dirty set: always include immediate neighbors so cross-segment cutouts
+    // are correctly cleared and rebuilt when an opening moves between segments.
+    let mut expanded: HashSet<WallSegmentKey> = initial_dirty.clone();
+    for &key in &initial_dirty {
+        let left = left_neighbor_key(key);
+        let right = right_neighbor_key(key);
+        if seg_len_by_key.contains_key(&left) {
+            expanded.insert(left);
+        }
+        if seg_len_by_key.contains_key(&right) {
+            expanded.insert(right);
+        }
+    }
+
+    for key in expanded {
+        // Despawn stale visual pieces for this segment
+        let stale = cache.pieces_by_key.remove(&key).unwrap_or_default();
+        for e in stale {
+            commands.entity(e).try_despawn();
+        }
+
+        let surface = surfaces.iter().find(|s| s.key == key);
+        let segment = all_segments.iter().find(|s| s.key == key);
+        let (Some(surface), Some(segment)) = (surface, segment) else {
+            continue;
+        };
+
+        let seg_len = surface.length;
+        let left_key = left_neighbor_key(key);
+        let left_seg_len = seg_len_by_key.get(&left_key).copied().unwrap_or(0.0);
+        let right_key = right_neighbor_key(key);
+
+        // Collect openings affecting this segment from three sources:
+        // 1. Direct: opening's primary segment is this key (clipped to [0, seg_len])
+        // 2. Left-neighbor right-overflow: opening in left_key overflows past left_seg_len
+        // 3. Right-neighbor left-underflow: opening in right_key has offset_min < 0
+        let mut seg_openings: Vec<opening::WallOpeningRect> = Vec::new();
+
+        for o in openings.iter().filter(|o| o.segment_key == key) {
+            let cmin = o.offset_min.max(0.0);
+            let cmax = o.offset_max.min(seg_len);
+            if cmin < cmax {
+                seg_openings.push(opening::WallOpeningRect {
+                    offset_min: cmin,
+                    offset_max: cmax,
+                    height_min: o.height_min,
+                    height_max: o.height_max,
+                });
+            }
+        }
+        for o in openings.iter().filter(|o| o.segment_key == left_key && o.offset_max > left_seg_len) {
+            let overflow = (o.offset_max - left_seg_len).min(seg_len);
+            if overflow > 0.0 {
+                seg_openings.push(opening::WallOpeningRect {
+                    offset_min: 0.0,
+                    offset_max: overflow,
+                    height_min: o.height_min,
+                    height_max: o.height_max,
+                });
+            }
+        }
+        for o in openings.iter().filter(|o| o.segment_key == right_key && o.offset_min < 0.0) {
+            let left_extent = (-o.offset_min).min(seg_len);
+            if left_extent > 0.0 {
+                seg_openings.push(opening::WallOpeningRect {
+                    offset_min: seg_len - left_extent,
+                    offset_max: seg_len,
+                    height_min: o.height_min,
+                    height_max: o.height_max,
+                });
+            }
+        }
+
+        let wall_color = match key.side {
+            StoreBoundarySide::Top => Color::srgba(0.35, 0.25, 0.18, 0.98),
+            StoreBoundarySide::Right => Color::srgba(0.28, 0.18, 0.12, 0.98),
+        };
+
+        let pieces =
+            opening::split_wall_around_openings(surface.length, surface.height, &seg_openings);
+
+        let mut new_entities: Vec<Entity> = Vec::new();
+
+        for piece in &pieces {
+            let mesh = build_wall_piece_mesh(piece, segment, *projection);
+            let e = commands
+                .spawn((
+                    Mesh2d(meshes.add(mesh)),
+                    MeshMaterial2d(materials.add(ColorMaterial::from(wall_color))),
+                    Transform::from_xyz(0.0, 0.0, SortLayer::WallFace.base_z()),
+                    Visibility::Visible,
+                    WallVisualPiece { key },
+                    WallPieceKind::Solid,
+                    NonInteractive,
+                    RuntimeOwned { owner: RuntimeOwner::BoundaryWall },
+                    Name::new(format!("WallPiece {:?} {:?}", key.side, key.chunk)),
+                ))
+                .id();
+            new_entities.push(e);
+        }
+
+        // Glass overlays — same three-source logic, but preserve original offset coords
+        // for direct openings and compute correct coords for overflow cases.
+        let spawn_glass = |commands: &mut Commands,
+                           meshes: &mut Assets<Mesh>,
+                           materials: &mut Assets<ColorMaterial>,
+                           piece: opening::WallPieceRect,
+                           glass_color: Color,
+                           segment: &StoreBoundarySegment,
+                           projection: IsoProjection,
+                           key: WallSegmentKey|
+         -> Entity {
+            let mesh = build_wall_piece_mesh(&piece, segment, projection);
+            commands
+                .spawn((
+                    Mesh2d(meshes.add(mesh)),
+                    MeshMaterial2d(materials.add(ColorMaterial::from(glass_color))),
+                    Transform::from_xyz(0.0, 0.0, SortLayer::WallFace.base_z() + 2.0),
+                    Visibility::Visible,
+                    WallVisualPiece { key },
+                    WallPieceKind::Glass,
+                    NonInteractive,
+                    RuntimeOwned { owner: RuntimeOwner::BoundaryWall },
+                    Name::new(format!("WallGlass {:?} {:?}", key.side, key.chunk)),
+                ))
+                .id()
+        };
+
+        for o in openings.iter().filter(|o| o.segment_key == key) {
+            let Some(glass_color) = o.glass_color else { continue };
+            let cmin = o.offset_min.max(0.0);
+            let cmax = o.offset_max.min(seg_len);
+            if cmin < cmax {
+                let e = spawn_glass(
+                    &mut commands, &mut meshes, &mut materials,
+                    opening::WallPieceRect { offset_min: cmin, offset_max: cmax, height_min: o.height_min, height_max: o.height_max },
+                    glass_color, segment, *projection, key,
+                );
+                new_entities.push(e);
+            }
+        }
+        for o in openings.iter().filter(|o| o.segment_key == left_key && o.offset_max > left_seg_len) {
+            let Some(glass_color) = o.glass_color else { continue };
+            let overflow = (o.offset_max - left_seg_len).min(seg_len);
+            if overflow > 0.0 {
+                let e = spawn_glass(
+                    &mut commands, &mut meshes, &mut materials,
+                    opening::WallPieceRect { offset_min: 0.0, offset_max: overflow, height_min: o.height_min, height_max: o.height_max },
+                    glass_color, segment, *projection, key,
+                );
+                new_entities.push(e);
+            }
+        }
+        for o in openings.iter().filter(|o| o.segment_key == right_key && o.offset_min < 0.0) {
+            let Some(glass_color) = o.glass_color else { continue };
+            let left_extent = (-o.offset_min).min(seg_len);
+            if left_extent > 0.0 {
+                let e = spawn_glass(
+                    &mut commands, &mut meshes, &mut materials,
+                    opening::WallPieceRect { offset_min: seg_len - left_extent, offset_max: seg_len, height_min: o.height_min, height_max: o.height_max },
+                    glass_color, segment, *projection, key,
+                );
+                new_entities.push(e);
+            }
+        }
+
+        cache.pieces_by_key.insert(key, new_entities);
+    }
 }

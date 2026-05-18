@@ -198,6 +198,21 @@ pub enum DoorwayKind {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorMovable;
 
+/// Derived runtime component on a wall-mounted object that carries `WallOpeningSpec`.
+/// Stores the resolved wall-local opening rectangle.
+/// Not saved — rederived from prototype + `ObjectPlacement::WallMounted` at spawn/move/load.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallOpeningComponent {
+    pub segment_key: WallSegmentKey,
+    pub offset_min: f32,
+    pub offset_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
+    pub glass_color: Option<Color>,
+    #[allow(dead_code)]
+    pub frame_color: Option<Color>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DerivedDoorPlacement {
     pub wallprint: Wallprint,
