@@ -1,10 +1,13 @@
+#[cfg(test)]
+mod tests;
 use bevy::prelude::*;
 
 use crate::input::{
     InputAction, InputActionState, PointerContext, PointerTargets, point_in_convex_quad,
 };
 use crate::objects::components::{
-    InteractionRole, RuntimeOwned, RuntimeOwner, VisualOffset, WallAttachmentPoint, WorldPos,
+    DoorAccessZonePreview, InteractionRole, RuntimeOwned, RuntimeOwner, VisualOffset,
+    WallAttachmentPoint, WorldPos,
 };
 use crate::objects::prototypes::{
     BuildSelectionState, ObjectCatalog, PlacementKind, SelectBuildPrototypeRequested,
@@ -180,10 +183,29 @@ fn spawn_build_session(
                 true,
             );
 
+            let mut access_zone_preview_entity = None;
+            if crate::objects::prototypes::doorway_spec(proto).is_some() {
+                access_zone_preview_entity = Some(
+                    commands
+                        .spawn((
+                            DoorAccessZonePreview,
+                            ToolPreview,
+                            NonInteractive,
+                            Visibility::Hidden,
+                            RuntimeOwned {
+                                owner: RuntimeOwner::ToolPreview,
+                            },
+                            Name::new("DoorAccessZonePreview"),
+                        ))
+                        .id(),
+                );
+            }
+
             session.active = Some(ActiveToolSession::Build(BuildToolSession::WallMounted(
                 WallMountedBuildSession {
                     prototype_id,
                     preview_entity,
+                    access_zone_preview_entity,
                     current_attachment: None,
                     rotation_index: 0,
                     awaiting_fresh_click: true,
@@ -263,14 +285,72 @@ pub fn build_tool_system(mut params: BuildToolParams) {
                     preview_size.x * 0.5,
                 );
 
-                wall.current_attachment = attachment.map(|(attachment, _, _)| attachment);
+                let proto = params.catalog.prototypes.get(&wall.prototype_id);
+                wall.current_attachment = attachment.map(|(attachment, _, _)| {
+                    proto.map_or(attachment, |proto| {
+                        crate::objects::prototypes::normalize_wall_attachment_for_prototype(
+                            proto, attachment,
+                        )
+                    })
+                });
+
+                if let Some(access_zone_preview) = wall.access_zone_preview_entity {
+                    if let Some(attachment) = wall.current_attachment
+                        && let Some(proto) = proto
+                        && let Some(door_spec) = crate::objects::prototypes::doorway_spec(proto)
+                        && let Some(spec) = crate::objects::prototypes::wall_mounted_spec(proto)
+                        && let Some((_, surface)) = params
+                            .wall_surfaces
+                            .iter()
+                            .find(|(_, s)| s.key == attachment.segment_key)
+                    {
+                        if let Ok(derived) = crate::store::boundary::derive_door_placement(
+                            spec.width,
+                            spec.height,
+                            door_spec.access_width,
+                            door_spec.access_depth,
+                            attachment,
+                            surface,
+                            crate::objects::prototypes::wall_occupancy_kind_for_prototype(proto),
+                        ) {
+                            params
+                                .commands
+                                .entity(access_zone_preview)
+                                .insert((derived.interior_access_zone, Visibility::Visible));
+                        } else {
+                            params
+                                .commands
+                                .entity(access_zone_preview)
+                                .insert(Visibility::Hidden);
+                        }
+                    } else {
+                        params
+                            .commands
+                            .entity(access_zone_preview)
+                            .insert(Visibility::Hidden);
+                    }
+                }
 
                 if let Ok((mut world_pos, mut visual_offset, mut visibility, mut preview)) =
                     params.wall_previews.get_mut(wall.preview_entity)
                 {
-                    if let Some((_, base_world_pos, offset)) = attachment {
+                    if let Some((raw_attachment, base_world_pos, offset)) = attachment {
                         world_pos.0 = base_world_pos;
-                        visual_offset.0 = offset;
+                        visual_offset.0 = if let Some(proto) = proto
+                            && crate::objects::prototypes::doorway_spec(proto).is_some()
+                            && let Some((_, surface)) = params
+                                .wall_surfaces
+                                .iter()
+                                .find(|(_, s)| s.key == raw_attachment.segment_key)
+                        {
+                            crate::store::wall_surface_visual_offset(
+                                surface,
+                                *params.projection,
+                                0.0,
+                            )
+                        } else {
+                            offset
+                        };
                         *visibility = Visibility::Visible;
                         preview.validation = Some(Ok(()));
                     } else {
@@ -310,6 +390,7 @@ pub(crate) struct BuildToolParams<'w, 's> {
     next_mode: ResMut<'w, NextState<ToolMode>>,
     tool: ResMut<'w, ToolContext>,
     session: ResMut<'w, ToolSessionState>,
+    catalog: Res<'w, ObjectCatalog>,
     ghost_positions: Query<'w, 's, &'static mut WorldPos, Without<WallMountedPreview>>,
     wall_preview_size: Query<'w, 's, &'static Sprite, With<WallMountedPreview>>,
     wall_previews: Query<
@@ -389,7 +470,7 @@ pub fn find_wall_attachment_candidate(
         let distance_from_wall_plane = to_surface_base.dot(wall_normal).abs();
 
         let inside_quad = point_in_convex_quad(projected_pos, quad);
-        
+
         let acceptance = if inside_quad {
             distance_from_wall_plane
         } else {
@@ -417,32 +498,4 @@ pub fn find_wall_attachment_candidate(
     }
 
     best.map(|(_, attachment, base_world, visual_offset)| (attachment, base_world, visual_offset))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::input::WallSurfaceHit;
-    use crate::store::{StoreBoundarySide, StoreChunkCoord, WallSegmentKey};
-
-    #[test]
-    fn wall_attachment_from_hit_clamps_to_surface_bounds() {
-        let hit = WallSurfaceHit {
-            entity: Entity::from_bits(1),
-            key: WallSegmentKey {
-                chunk: StoreChunkCoord { x: 0, y: 0 },
-                side: StoreBoundarySide::Top,
-            },
-            world_pos: Vec2::new(3.0, 7.0),
-            offset_along_segment: 0.2,
-            height_on_wall: 20.0,
-            normal: Vec2::Y,
-        };
-
-        let attachment = wall_attachment_from_hit(hit, 1.0, 4.0, 6.0);
-
-        assert_eq!(attachment.segment_key, hit.key);
-        assert!((attachment.offset_along_segment - 1.0).abs() < 0.001);
-        assert!((attachment.height_on_wall - 6.0).abs() < 0.001);
-    }
 }

@@ -31,6 +31,7 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - Wall-mounted objects are not floor objects: they have `WallMountedPlacement` and `Wallprint`, no floor `Footprint`, no `BlocksPlacement`, and no `Movable`.
 - `Footprint` is floor occupancy only. `Wallprint` is wall occupancy only. `StoreObject` no longer implies either one by itself.
 - `wall.window.basic_visual` is a visual-only wall-mounted window. It uses alpha/presentation semantics only and does not create a StoreArea hole, wall cutout, navigation portal, or collision change.
+- `wall.door.basic_customer` is a basic wall door. Door attachments are normalized to the wall floor line (`height_on_wall = 0.0`) before build/move/load/factory paths, and the door creates an interior access zone without a navigation portal or wall cutout.
 
 ## Remaining Technical Debt
 

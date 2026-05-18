@@ -2,7 +2,10 @@
 
 Stage 5B.3 turns the wall-mounted preview path into the first real wall-mounted object flow.
 
-The scope is intentionally narrow: wall decor and a visual-only window are buildable, saved, loaded, selectable, inspectable, and deletable. Doors, clearances, navigation portals, wall cutouts, and wall-mounted move are not part of this stage.
+The scope is intentionally narrow: wall decor, a visual-only window, and a
+basic wall door are buildable, saved, loaded, selectable, inspectable, and
+deletable. Navigation portals, wall cutouts, and general wall-mounted move are
+not part of this stage.
 
 ## Runtime Model
 
@@ -175,7 +178,7 @@ Occupancy:
   Footprint/FloorFootprint / Wallprint
 
 Access:
-  FloorClearance
+  InteriorAccessZone
 
 Selection:
   current sprite or wall runtime bounds strategy
@@ -271,15 +274,28 @@ It is a simple wall decor object. It does not imply windows, transparency, wall 
 
 The window is rendered above the wall face as a translucent wall-mounted visual. Exterior visibility through the window is a presentation/layering concern: exterior objects are behind `WallFace`, and the window is drawn above the wall. No StoreArea hole, wall cutout, or navigation portal is created.
 
+`wall.door.basic_customer` is the first basic door prototype:
+
+- `PlacementKind::WallMounted`;
+- visible in the Ribbon `Walls` tab;
+- `WallMountedSpec`;
+- `Doorway`;
+- `DoorMovable`;
+- creates an `InteriorAccessZone`.
+
+Unlike generic wall-mounted decor/windows, a door is always clamped to the
+floor line of the wall. Any incoming `WallAttachmentPoint.height_on_wall` is
+normalized to the doorway spec base height, currently `0.0`, before build,
+move, save/load restoration, or factory spawning. The door still does not
+create a wall cutout or navigation portal yet.
+
 ## Explicit Non-Goals
 
-- no doors;
-- no door clearance;
 - no navigation portals;
 - no NPC pathfinding;
 - no wall cutouts;
 - no wall editor;
-- no wall-mounted move;
+- no general wall-mounted move for decor/window objects;
 - no exterior editing tools.
 
 ## Tests
@@ -292,6 +308,7 @@ Current coverage includes:
 - wall-mounted build does not add `BlocksPlacement` or `Movable`;
 - wall-mounted build does not add floor `Footprint`;
 - wall-mounted overlap is rejected through `Wallprint` conflict checks;
+- door build clamps wall height to the floor line;
 - wall-mounted load restores wall placement/occupancy components and does not add floor `Footprint`;
 - wall surface hit and attachment clamping;
 - save/load authority restoration for existing objects.

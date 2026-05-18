@@ -170,6 +170,7 @@ fn setup(
                     world_pos: pos,
                     rotation_index: Some(0),
                 },
+                derived_door: None,
             },
         ) {
             warn!("Failed to spawn startup object: {}", e);

@@ -52,7 +52,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `FootAnchor` marks sorting/picking anchor.
 - `Footprint` / `FloorFootprint` is local floor occupancy geometry.
 - `Wallprint` is wall occupancy geometry addressed by `WallSegmentKey`.
-- `FloorClearance` is future floor access reservation geometry, distinct from physical floor occupancy.
+- `InteriorAccessZone` is future floor access reservation geometry, distinct from physical floor occupancy.
 - `StoreObject` marks real player-owned store objects. It does not imply floor placement, `Footprint`, or `Movable`.
 - `ObjectStableId` is a persistent ID for objects across save/load.
 - `Rotatable` carries rotation variants for sprite, footprint, foot anchor, and visual offset.
@@ -118,6 +118,7 @@ Gameplay mutation authority:
 - Stage 5B.3.1 hardens spatial occupancy: floor objects use `FloorPlacement` and floor `Footprint`; wall-mounted objects use `WallMountedPlacement` and `Wallprint`. `WallMountedBounds` remains a narrow runtime cache while selection/highlight code migrates away from floor-footprint assumptions.
 - Wall-mounted objects are deliberately not moved by the current floor `MoveTool`. They are valid `StoreObject` entities for selection, inspection, delete, and save/load, but they do not get `Movable` until a wall-mounted move strategy exists.
 - `wall.window.basic_visual` is visual-only: it uses `Window { glass_alpha }` for presentation semantics and does not create wall cutouts, collision changes, or navigation portals.
+- `wall.door.basic_customer` is a wall-mounted door prototype. Its attachment height is normalized to the wall floor line; it creates an interior access zone but still does not create a wall cutout or navigation portal.
 - The Ribbon exposes a `Walls` tab for the wall-mounted prototype. Wall-mounted objects are saved and loaded through `ObjectPlacement::WallMounted`; wall visuals and wall surfaces remain derived and unsaved.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
@@ -151,4 +152,4 @@ Gameplay mutation authority:
 - Economy system and currency-based validation in commands.
 - Save migrations and multiple slots.
 - Further decomposition of `DomainCommand` apply paths if new gameplay commands add more branching.
-- Wall-mounted move, doors, wall cutouts, navigation portals, and exterior editing tools.
+- General wall-mounted move, wall cutouts, navigation portals, and exterior editing tools.

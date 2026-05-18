@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::input::{InputAction, InputActionState};
 use crate::objects::components::{
     Footprint, InteractionRole, RuntimeOwned, RuntimeOwner, WorldPos,
 };
@@ -39,16 +40,29 @@ impl Plugin for WorldWidgetUiPlugin {
 fn rotate_widget_button_system(
     mut query: Query<(&Interaction, &RotateWorldWidget), Changed<Interaction>>,
     mut actions: MessageWriter<ObjectActionRequested>,
+    actions_state: Res<InputActionState>,
     mut cycle: ResMut<PrimaryPointerCycle>,
+    mut handled_target_in_cycle: Local<Option<Entity>>,
 ) {
+    if actions_state.just_released(InputAction::PrimaryClick) {
+        *handled_target_in_cycle = None;
+    }
+
     for (interaction, widget) in &mut query {
         if *interaction != Interaction::Pressed {
+            continue;
+        }
+        if *handled_target_in_cycle == Some(widget.target) {
+            continue;
+        }
+        if cycle.consumed && cycle.owner == PointerPressOwner::WorldWidget {
             continue;
         }
 
         // IMPORTANT: Ensure the press owner is set correctly to block tools from using this click
         cycle.owner = PointerPressOwner::WorldWidget;
         cycle.consumed = true;
+        *handled_target_in_cycle = Some(widget.target);
 
         actions.write(ObjectActionRequested {
             entity: widget.target,

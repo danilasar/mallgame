@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod tests;
 use bevy::asset::RenderAssetUsages;
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::Indices;
@@ -6,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::objects::components::{
-    InteractionRole, Interactive, RuntimeOwned, RuntimeOwner, SortLayer, VisualOffset, WallMounted,
-    WorldPos,
+    AccessZoneReason, DerivedDoorPlacement, InteractionRole, Interactive, InteriorAccessZone,
+    RuntimeOwned, RuntimeOwner, SortLayer, VisualOffset, WallAttachmentPoint, WallMounted,
+    WallOccupancyKind, WorldPos, derive_wallprint,
 };
 use crate::presentation::{IsoProjection, world_to_iso};
 use crate::store::{StoreArea, StoreChunkCoord, StoreExpansionPolicy, WorldBounds};
@@ -162,6 +165,49 @@ pub fn collect_boundary_segments(
     ));
     segments.sort_by_key(|segment| boundary_sort_key(segment.key));
     segments
+}
+
+pub fn boundary_wall_interior_direction(side: StoreBoundarySide) -> Vec2 {
+    match side {
+        StoreBoundarySide::Top => Vec2::NEG_Y,
+        StoreBoundarySide::Right => Vec2::NEG_X,
+    }
+}
+
+pub fn derive_door_placement(
+    wall_width: f32,
+    wall_height: f32,
+    access_width: f32,
+    access_depth: f32,
+    attachment: WallAttachmentPoint,
+    surface: &WallSurface,
+    occupancy_kind: WallOccupancyKind,
+) -> Result<DerivedDoorPlacement, crate::store::PlacementInvalidReason> {
+    let wallprint = derive_wallprint(attachment, wall_width, wall_height, occupancy_kind);
+
+    let wall_dir = (surface.end - surface.start).normalize();
+    let interior_dir = boundary_wall_interior_direction(surface.key.side);
+
+    let base_pos = surface.start + wall_dir * attachment.offset_along_segment;
+
+    // Half width along the wall
+    let half_width = access_width * 0.5;
+
+    // The points of the interior access zone polygon
+    // p1, p2 are along the wall base
+    let p1 = base_pos - wall_dir * half_width;
+    let p2 = base_pos + wall_dir * half_width;
+    // p3, p4 are projected into the interior
+    let p3 = p2 + interior_dir * access_depth;
+    let p4 = p1 + interior_dir * access_depth;
+
+    Ok(DerivedDoorPlacement {
+        wallprint,
+        interior_access_zone: InteriorAccessZone {
+            polygon: vec![p1, p2, p3, p4],
+            reason: AccessZoneReason::DoorAccess,
+        },
+    })
 }
 
 pub fn is_locked_boundary_side(policy: StoreExpansionPolicy, side: StoreBoundarySide) -> bool {
@@ -360,67 +406,4 @@ fn spawn_wall_segment(
             )),
         ))
         .id()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initial_store_generates_boundary_runs() {
-        let store = StoreArea::new(Vec2::ZERO);
-        let world = WorldBounds::default();
-        let segments = collect_boundary_segments(&store, &world);
-
-        assert_eq!(segments.len(), 9);
-        assert!(
-            segments
-                .iter()
-                .any(|segment| segment.key.side == StoreBoundarySide::Top)
-        );
-        assert!(
-            segments
-                .iter()
-                .any(|segment| segment.key.side == StoreBoundarySide::Right)
-        );
-
-        let chunk_size = store.chunk_world_size();
-        for segment in segments {
-            assert!((segment.height - chunk_size.y * 1.5).abs() < f32::EPSILON);
-            assert!((segment.length - chunk_size.x).abs() < f32::EPSILON);
-            assert!((segment.thickness - 8.0).abs() < f32::EPSILON);
-        }
-    }
-
-    #[test]
-    fn missing_outer_corner_does_not_shift_wall_inward() {
-        let mut store = StoreArea::new(Vec2::ZERO);
-        store.owned_chunks.remove(&StoreChunkCoord { x: -1, y: -1 });
-
-        let world = WorldBounds::default();
-        let segments = collect_boundary_segments(&store, &world);
-
-        assert!(segments.is_empty());
-    }
-
-    #[test]
-    fn top_row_stops_at_first_gap_from_corner() {
-        let mut store = StoreArea::new(Vec2::ZERO);
-        store.owned_chunks.remove(&StoreChunkCoord { x: -2, y: -1 });
-
-        let world = WorldBounds::default();
-        let segments = collect_boundary_segments(&store, &world);
-
-        let top_segments = segments
-            .iter()
-            .filter(|segment| segment.key.side == StoreBoundarySide::Top)
-            .count();
-        let right_segments = segments
-            .iter()
-            .filter(|segment| segment.key.side == StoreBoundarySide::Right)
-            .count();
-
-        assert_eq!(top_segments, 1);
-        assert_eq!(right_segments, 4);
-    }
 }

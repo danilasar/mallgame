@@ -46,3 +46,17 @@ pub fn footprints_intersect(
 
     a.min.x < b.max.x && a.max.x > b.min.x && a.min.y < b.max.y && a.max.y > b.min.y
 }
+
+pub fn polygon_intersects_access_zone(
+    polygon: &[Vec2],
+    access_zone: &crate::objects::components::InteriorAccessZone,
+) -> bool {
+    let Some(a) = polygon_bounds(polygon) else {
+        return false;
+    };
+    let Some(b) = polygon_bounds(&access_zone.polygon) else {
+        return false;
+    };
+
+    a.min.x < b.max.x && a.max.x > b.min.x && a.min.y < b.max.y && a.max.y > b.min.y
+}

@@ -65,19 +65,35 @@ impl Plugin for ToolCorePlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn unified_tool_validation_system(
     world_bounds: Res<WorldBounds>,
     store_area: Res<StoreArea>,
     mut session: ResMut<ToolSessionState>,
     footprints: Query<
-        (Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>),
-        Without<WallMounted>,
+        (
+            Entity,
+            &crate::objects::components::WorldPos,
+            &crate::objects::components::Footprint,
+            Option<&crate::objects::components::BlocksPlacement>,
+        ),
+        Without<crate::objects::components::WallMounted>,
     >,
+    access_zones: Query<(
+        Entity,
+        &crate::objects::components::InteriorAccessZone,
+        Option<&crate::objects::components::ObjectStableId>,
+    )>,
+    stable_ids: Query<&crate::objects::components::ObjectStableId>,
     mut previews: Query<(
         &mut PlacementPreview,
         &WorldPos,
         Option<&Footprint>,
         Option<&crate::tools::WallMountedPreview>,
+    )>,
+    wallprints: Query<(
+        &crate::objects::components::Wallprint,
+        &crate::objects::components::ObjectStableId,
     )>,
 ) {
     let Some(active) = session.active.as_mut() else {
@@ -94,6 +110,7 @@ pub fn unified_tool_validation_system(
                         &world_bounds,
                         &store_area,
                         &footprints,
+                        &access_zones,
                         footprint,
                         pos.0,
                         crate::placement::PlacementValidationOptions::default(),
@@ -112,15 +129,20 @@ pub fn unified_tool_validation_system(
         },
         ActiveToolSession::Move(move_session) => match move_session {
             crate::tools::MoveToolSession::Floor(s) => {
-                if let Ok((mut preview, pos, Some(footprint), _)) = previews.get_mut(s.preview_entity) {
+                if let Ok((mut preview, pos, Some(footprint), _)) =
+                    previews.get_mut(s.preview_entity)
+                {
+                    let stable_id = stable_ids.get(s.source_entity).ok().map(|id| id.0);
                     let result = crate::placement::validate_placement(
                         &world_bounds,
                         &store_area,
                         &footprints,
+                        &access_zones,
                         footprint,
                         pos.0,
                         crate::placement::PlacementValidationOptions {
                             ignore_entity: Some(s.source_entity),
+                            ignore_stable_id: stable_id,
                         },
                     );
                     preview.validation = Some(result);
@@ -130,6 +152,30 @@ pub fn unified_tool_validation_system(
                 if let Ok((mut preview, _, _, _)) = previews.get_mut(s.preview_entity) {
                     preview.validation = Some(match s.current_attachment {
                         Some(_) => Ok(()),
+                        None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
+                    });
+                }
+            }
+            crate::tools::MoveToolSession::Door(s) => {
+                if let Ok((mut preview, _, _, _)) = previews.get_mut(s.preview_entity) {
+                    preview.validation = Some(match s.current_attachment {
+                        Some(_) => match &s.current_derived {
+                            Some(derived) => {
+                                let stable_id =
+                                    wallprints.get(s.source_entity).ok().map(|(_, id)| id.0);
+                                crate::placement::validate_derived_door_placement(
+                                    derived,
+                                    &store_area,
+                                    &footprints,
+                                    &wallprints,
+                                    crate::placement::PlacementValidationOptions {
+                                        ignore_entity: Some(s.source_entity),
+                                        ignore_stable_id: stable_id,
+                                    },
+                                )
+                            }
+                            None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
+                        },
                         None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
                     });
                 }
@@ -211,16 +257,31 @@ pub fn cleanup_current_session(
     match active {
         ActiveToolSession::Build(s) => {
             commands.entity(s.preview_entity()).try_despawn();
+            if let BuildToolSession::WallMounted(w) = s
+                && let Some(az) = w.access_zone_preview_entity
+            {
+                commands.entity(az).try_despawn();
+            }
         }
         ActiveToolSession::Move(s) => {
-            let (preview_entity, source_entity) = match s {
-                crate::tools::MoveToolSession::Floor(f) => (f.preview_entity, f.source_entity),
-                crate::tools::MoveToolSession::WallMounted(w) => (w.preview_entity, w.source_entity),
+            let (preview_entity, source_entity, access_zone_entity) = match s {
+                crate::tools::MoveToolSession::Floor(f) => {
+                    (f.preview_entity, f.source_entity, None)
+                }
+                crate::tools::MoveToolSession::WallMounted(w) => {
+                    (w.preview_entity, w.source_entity, None)
+                }
+                crate::tools::MoveToolSession::Door(d) => (
+                    d.preview_entity,
+                    d.source_entity,
+                    d.access_zone_preview_entity,
+                ),
             };
             commands.entity(preview_entity).try_despawn();
-            commands
-                .entity(source_entity)
-                .try_remove::<PreviewSource>();
+            if let Some(az) = access_zone_entity {
+                commands.entity(az).try_despawn();
+            }
+            commands.entity(source_entity).try_remove::<PreviewSource>();
         }
         ActiveToolSession::Expansion(_) => {}
     }
@@ -279,8 +340,7 @@ pub fn handle_object_action_requests(mut params: ObjectActionRequestParams) {
                     entity: request.entity,
                     steps: 1,
                 });
-                // NEW: In Move mode, clicking Rotate also starts the move session (picks up the object).
-                if *params.mode.get() == ToolMode::Move {
+                if request.origin == ObjectActionOrigin::WorldWidget {
                     params.move_requests.write(StartMoveObjectRequested {
                         entity: request.entity,
                     });
@@ -301,7 +361,6 @@ pub fn handle_object_action_requests(mut params: ObjectActionRequestParams) {
 #[derive(SystemParam)]
 pub(crate) struct ObjectActionRequestParams<'w, 's> {
     requests: MessageReader<'w, 's, ObjectActionRequested>,
-    mode: Res<'w, State<ToolMode>>,
     selection: ResMut<'w, SelectionState>,
     move_requests: MessageWriter<'w, StartMoveObjectRequested>,
     rotate_requests: MessageWriter<'w, RotateObjectRequested>,

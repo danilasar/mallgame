@@ -28,6 +28,7 @@ impl ActiveToolSession {
             Self::Move(s) => match s {
                 MoveToolSession::Floor(s) => Some(s.preview_entity),
                 MoveToolSession::WallMounted(s) => Some(s.preview_entity),
+                MoveToolSession::Door(s) => Some(s.preview_entity),
             },
             Self::Expansion(_) => None,
         }
@@ -61,6 +62,7 @@ pub struct FloorBuildSession {
 pub struct WallMountedBuildSession {
     pub prototype_id: BuildObjectId,
     pub preview_entity: Entity,
+    pub access_zone_preview_entity: Option<Entity>,
     pub current_attachment: Option<crate::objects::components::WallAttachmentPoint>,
     pub rotation_index: usize,
     pub awaiting_fresh_click: bool,
@@ -70,6 +72,7 @@ pub struct WallMountedBuildSession {
 pub enum MoveToolSession {
     Floor(FloorMoveSession),
     WallMounted(WallMoveSession),
+    Door(DoorMoveSession),
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +93,19 @@ pub struct WallMoveSession {
     #[allow(dead_code)]
     pub original_attachment: crate::objects::components::WallAttachmentPoint,
     pub current_attachment: Option<crate::objects::components::WallAttachmentPoint>,
+    pub awaiting_fresh_click: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DoorMoveSession {
+    pub source_entity: Entity,
+    pub preview_entity: Entity,
+    pub access_zone_preview_entity: Option<Entity>,
+    pub prototype_id: BuildObjectId,
+    #[expect(dead_code, reason = "future door move cancel/rollback state")]
+    pub original_attachment: crate::objects::components::WallAttachmentPoint,
+    pub current_attachment: Option<crate::objects::components::WallAttachmentPoint>,
+    pub current_derived: Option<crate::objects::components::DerivedDoorPlacement>,
     pub awaiting_fresh_click: bool,
 }
 

@@ -173,6 +173,7 @@ pub fn clear_runtime_owned(commands: &mut Commands, runtime_owned: Vec<Entity>) 
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_load_plan(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -180,6 +181,7 @@ pub fn apply_load_plan(
     allocator: &mut StableObjectIdAllocator,
     catalog: &ObjectCatalog,
     existing_objects: &Query<Entity, With<StoreObject>>,
+    world_bounds: &WorldBounds,
     plan: LoadPlan,
 ) -> LoadReport {
     // 1. Clear existing objects
@@ -197,20 +199,64 @@ pub fn apply_load_plan(
 
     // 3. Spawn objects
     let mut loaded_count = 0;
+    let wall_surfaces = crate::store::boundary::collect_boundary_segments(store, world_bounds);
+
     for object_plan in &plan.object_plans {
-        if let ObjectLoadPlan::Spawn(obj) = object_plan
-            && let Ok(_entity) = spawn_store_object_from_prototype(
+        if let ObjectLoadPlan::Spawn(obj) = object_plan {
+            let mut placement = placement_from_save(&obj.placement);
+            let mut derived_door = None;
+
+            if let Some(proto) = catalog.prototypes.get(&obj.prototype_id)
+                && let ObjectPlacement::WallMounted { attachment } = placement
+            {
+                placement = ObjectPlacement::WallMounted {
+                    attachment: crate::objects::prototypes::normalize_wall_attachment_for_prototype(
+                        proto, attachment,
+                    ),
+                };
+            }
+
+            if let Some(proto) = catalog.prototypes.get(&obj.prototype_id)
+                && let Some(door_spec) = crate::objects::prototypes::doorway_spec(proto)
+                && let Some(spec) = crate::objects::prototypes::wall_mounted_spec(proto)
+                && let ObjectPlacement::WallMounted { attachment } = placement
+                && let Some(surface) = wall_surfaces
+                    .iter()
+                    .find(|s| s.key == attachment.segment_key)
+                && let Ok(derived) = crate::store::boundary::derive_door_placement(
+                    spec.width,
+                    spec.height,
+                    door_spec.access_width,
+                    door_spec.access_depth,
+                    attachment,
+                    &crate::store::boundary::WallSurface {
+                        key: surface.key,
+                        start: surface.start,
+                        end: surface.end,
+                        thickness: surface.thickness,
+                        height: surface.height,
+                        length: surface.length,
+                        normal: surface.normal,
+                    },
+                    crate::objects::prototypes::wall_occupancy_kind_for_prototype(proto),
+                )
+            {
+                derived_door = Some(derived);
+            }
+
+            if let Ok(_entity) = spawn_store_object_from_prototype(
                 commands,
                 asset_server,
                 catalog,
                 SpawnStoreObjectParams {
                     stable_id: obj.id,
                     prototype_id: obj.prototype_id.clone(),
-                    placement: placement_from_save(&obj.placement),
+                    placement,
+                    derived_door,
                 },
-            )
-        {
-            loaded_count += 1;
+            ) {
+                loaded_count += 1;
+            }
         }
     }
 
@@ -249,209 +295,4 @@ fn placement_from_save(save: &ObjectPlacementSave) -> ObjectPlacement {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::objects::components::*;
-    use crate::objects::prototypes::BuildObjectId;
-
-    #[test]
-    fn test_save_load_restores_capabilities() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<Image>();
-        crate::store::commands::register_test_messages(&mut app);
-
-        // Setup catalog
-        let commands = app.world_mut().commands();
-        crate::objects::prototypes::setup_object_catalog(commands);
-        app.update();
-
-        let _catalog = app.world().resource::<ObjectCatalog>().clone();
-
-        let save = SaveGame {
-            version: CURRENT_SAVE_VERSION,
-            next_object_id: 2000,
-            store: StoreSave {
-                owned_chunks: vec![],
-            },
-            objects: vec![ObjectSave {
-                id: StableObjectId(1001),
-                prototype_id: BuildObjectId::new("fixture.shelf.basic"),
-                placement: ObjectPlacementSave::Floor {
-                    world_pos: WorldPosSave { x: 0.0, y: 0.0 },
-                    rotation_index: None,
-                },
-            }],
-        };
-
-        let plan =
-            build_load_plan(save, &SaveLoadLimits::default(), &WorldBounds::default()).unwrap();
-
-        // Mock resources for apply_load_plan
-        app.insert_resource(StoreArea::new(Vec2::ZERO));
-        app.insert_resource(StableObjectIdAllocator { next: 1 });
-
-        // Simpler way in App tests: run it as a system
-        app.world_mut().insert_resource(plan);
-        app.add_systems(
-            Update,
-            |mut commands: Commands,
-             asset_server: Res<AssetServer>,
-             mut store: ResMut<StoreArea>,
-             mut allocator: ResMut<StableObjectIdAllocator>,
-             catalog: Res<ObjectCatalog>,
-             query: Query<Entity, With<StoreObject>>,
-             plan_res: Res<LoadPlan>| {
-                apply_load_plan(
-                    &mut commands,
-                    &asset_server,
-                    &mut store,
-                    &mut allocator,
-                    &catalog,
-                    &query,
-                    plan_res.clone(),
-                );
-            },
-        );
-
-        app.update();
-
-        let world = app.world_mut();
-        let mut query =
-            world.query::<(&ObjectStableId, &ProductContainer, &NpcInteractionPoints)>();
-
-        let mut found = false;
-        for (sid, _, _) in query.iter(world) {
-            if sid.0 == StableObjectId(1001) {
-                found = true;
-                break;
-            }
-        }
-        assert!(
-            found,
-            "Loaded object should have sid 1001 and all capability components"
-        );
-    }
-
-    #[test]
-    fn test_save_load_restores_wall_mounted_object() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<Image>();
-        crate::store::commands::register_test_messages(&mut app);
-
-        let commands = app.world_mut().commands();
-        crate::objects::prototypes::setup_object_catalog(commands);
-        app.update();
-
-        let segment_key = crate::store::WallSegmentKey {
-            chunk: crate::store::StoreChunkCoord { x: -1, y: -1 },
-            side: crate::store::StoreBoundarySide::Top,
-        };
-        let save = SaveGame {
-            version: CURRENT_SAVE_VERSION,
-            next_object_id: 2000,
-            store: StoreSave {
-                owned_chunks: vec![],
-            },
-            objects: vec![ObjectSave {
-                id: StableObjectId(3001),
-                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
-                placement: ObjectPlacementSave::WallMounted {
-                    segment_key: WallSegmentKeySave {
-                        chunk: segment_key.chunk,
-                        side: segment_key.side,
-                    },
-                    offset_along_segment: 64.0,
-                    height_on_wall: 48.0,
-                },
-            }],
-        };
-
-        let plan =
-            build_load_plan(save, &SaveLoadLimits::default(), &WorldBounds::default()).unwrap();
-
-        app.insert_resource(StoreArea::new(Vec2::ZERO));
-        app.insert_resource(StableObjectIdAllocator { next: 1 });
-        app.world_mut().insert_resource(plan);
-        app.add_systems(
-            Update,
-            |mut commands: Commands,
-             asset_server: Res<AssetServer>,
-             mut store: ResMut<StoreArea>,
-             mut allocator: ResMut<StableObjectIdAllocator>,
-             catalog: Res<ObjectCatalog>,
-             query: Query<Entity, With<StoreObject>>,
-             plan_res: Res<LoadPlan>| {
-                apply_load_plan(
-                    &mut commands,
-                    &asset_server,
-                    &mut store,
-                    &mut allocator,
-                    &catalog,
-                    &query,
-                    plan_res.clone(),
-                );
-            },
-        );
-
-        app.update();
-
-        let world = app.world_mut();
-        let mut query = world.query::<(
-            &ObjectStableId,
-            &WallMounted,
-            &crate::objects::components::WallMountedPlacement,
-            &crate::objects::components::Wallprint,
-            &WallMountedBounds,
-            &ObjectPlacementComponent,
-            Option<&Footprint>,
-            Option<&crate::objects::components::BlocksPlacement>,
-            Option<&crate::objects::components::Movable>,
-            Option<&crate::objects::components::WallMovable>,
-            &crate::objects::components::Selectable,
-            &crate::objects::components::Inspectable,
-            &crate::objects::components::Deletable,
-            &StoreObject,
-        )>();
-        let found = query.iter(world).any(
-            |(
-                sid,
-                mounted,
-                mounted_placement,
-                wallprint,
-                bounds,
-                placement,
-                footprint,
-                blocks_placement,
-                movable,
-                wall_movable,
-                _, _, _,
-                _store_object,
-            )| {
-                sid.0 == StableObjectId(3001)
-                    && mounted.attachment.segment_key == segment_key
-                    && mounted_placement.attachment.segment_key == segment_key
-                    && wallprint.rects.len() == 1
-                    && wallprint.rects[0].segment_key == segment_key
-                    && bounds.segment_key == segment_key
-                    && footprint.is_none()
-                    && blocks_placement.is_none()
-                    && movable.is_none()
-                    && wall_movable.is_some()
-                    && matches!(
-                        placement.placement,
-                        ObjectPlacement::WallMounted { attachment }
-                            if attachment.segment_key == segment_key
-                    )
-            },
-        );
-
-        assert!(
-            found,
-            "wall-mounted object should restore from save placement"
-        );
-    }
-}
+mod tests;

@@ -166,9 +166,9 @@ pub fn wallprints_conflict(a: &Wallprint, b: &Wallprint) -> bool {
 
 #[derive(Component, Debug, Clone)]
 #[allow(dead_code)]
-pub struct FloorClearance {
-    pub local_polygon: Vec<Vec2>,
-    pub reason: ClearanceReason,
+pub struct InteriorAccessZone {
+    pub polygon: Vec<Vec2>,
+    pub reason: AccessZoneReason,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,12 +177,35 @@ pub struct FloorClearance {
     clippy::enum_variant_names,
     reason = "domain names intentionally share Access suffix"
 )]
-pub enum ClearanceReason {
+pub enum AccessZoneReason {
     DoorAccess,
     CheckoutAccess,
     ContainerAccess,
     ServiceAccess,
 }
+
+#[derive(Component, Debug, Clone, Copy)]
+#[expect(dead_code, reason = "door gameplay systems will consume doorway kind")]
+pub struct Doorway {
+    pub kind: DoorwayKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorwayKind {
+    CustomerEntrance,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DoorMovable;
+
+#[derive(Debug, Clone)]
+pub struct DerivedDoorPlacement {
+    pub wallprint: Wallprint,
+    pub interior_access_zone: InteriorAccessZone,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DoorAccessZonePreview;
 
 /// Runtime wall-rect cache used by current selection/inspection paths.
 ///

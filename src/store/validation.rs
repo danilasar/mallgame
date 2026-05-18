@@ -6,4 +6,6 @@ pub enum PlacementInvalidReason {
     OutsideWorldBounds,
     WallSurfaceMissing,
     WallAttachmentInvalid,
+    WallMountedOverlap,
+    DoorAccessBlocked,
 }

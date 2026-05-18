@@ -156,6 +156,7 @@ fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: Quick
                         &mut p.allocator,
                         &p.catalog,
                         &p.existing_objects,
+                        &p.world_bounds,
                         plan,
                     );
 

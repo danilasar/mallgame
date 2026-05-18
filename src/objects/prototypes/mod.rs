@@ -177,6 +177,16 @@ pub enum ObjectCapabilitySpec {
     NpcInteractionPoints(NpcInteractionPointsSpec),
     WallMounted(WallMountedSpec),
     Window(WindowSpec),
+    Doorway(DoorwaySpec),
+    DoorMovable,
+}
+
+#[derive(Debug, Clone)]
+pub struct DoorwaySpec {
+    pub access_width: f32,
+    pub access_depth: f32,
+    pub base_height_on_wall: f32,
+    pub kind: crate::objects::components::DoorwayKind,
 }
 
 #[derive(Debug, Clone)]
@@ -274,6 +284,7 @@ pub struct SpawnStoreObjectParams {
     pub stable_id: StableObjectId,
     pub prototype_id: BuildObjectId,
     pub placement: ObjectPlacement,
+    pub derived_door: Option<DerivedDoorPlacement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -302,14 +313,20 @@ pub fn spawn_store_object_from_prototype(
     let Some(proto) = catalog.prototypes.get(&params.prototype_id) else {
         return Err(SpawnObjectError::UnknownPrototype(params.prototype_id));
     };
+    let placement = match params.placement {
+        ObjectPlacement::WallMounted { attachment } => ObjectPlacement::WallMounted {
+            attachment: normalize_wall_attachment_for_prototype(proto, attachment),
+        },
+        floor => floor,
+    };
 
     let image = asset_server.load(&proto.visuals.asset_path);
-    let rotation_index = match params.placement {
+    let rotation_index = match placement {
         ObjectPlacement::Floor { rotation_index, .. } => rotation_index.unwrap_or(0),
         ObjectPlacement::WallMounted { .. } => 0,
     };
-    let is_wall_mounted = matches!(params.placement, ObjectPlacement::WallMounted { .. });
-    let initial_world_pos = match params.placement {
+    let is_wall_mounted = matches!(placement, ObjectPlacement::WallMounted { .. });
+    let initial_world_pos = match placement {
         ObjectPlacement::Floor { world_pos, .. } => world_pos,
         ObjectPlacement::WallMounted { .. } => Vec2::ZERO,
     };
@@ -326,15 +343,13 @@ pub fn spawn_store_object_from_prototype(
             ProjectedPos::default(),
             FootAnchor(proto.visuals.foot_anchor),
             VisualOffset(Vec2::ZERO),
-            if matches!(params.placement, ObjectPlacement::WallMounted { .. }) {
+            if matches!(placement, ObjectPlacement::WallMounted { .. }) {
                 SortLayer::WallTopCap
             } else {
                 SortLayer::Objects
             },
             SortBias(proto.visuals.sort_bias),
-            ObjectPlacementComponent {
-                placement: params.placement,
-            },
+            ObjectPlacementComponent { placement },
         ),
         (
             Interactive,
@@ -349,7 +364,7 @@ pub fn spawn_store_object_from_prototype(
         ),
     ));
 
-    match params.placement {
+    match placement {
         ObjectPlacement::Floor {
             world_pos,
             rotation_index,
@@ -369,12 +384,16 @@ pub fn spawn_store_object_from_prototype(
         }
         ObjectPlacement::WallMounted { attachment } => {
             if let Some(spec) = wall_mounted_spec {
-                let wallprint = derive_wallprint(
-                    attachment,
-                    spec.width,
-                    spec.height,
-                    wall_occupancy_kind_for_prototype(proto),
-                );
+                let wallprint = if let Some(derived) = &params.derived_door {
+                    derived.wallprint.clone()
+                } else {
+                    derive_wallprint(
+                        attachment,
+                        spec.width,
+                        spec.height,
+                        wall_occupancy_kind_for_prototype(proto),
+                    )
+                };
                 let bounds = wallprint.rects[0];
 
                 entity_commands.insert(WallMountedPlacement { attachment });
@@ -443,6 +462,15 @@ pub fn spawn_store_object_from_prototype(
                     ..default()
                 });
             }
+            ObjectCapabilitySpec::Doorway(spec) => {
+                entity_commands.insert(Doorway { kind: spec.kind });
+                if let Some(derived) = &params.derived_door {
+                    entity_commands.insert(derived.interior_access_zone.clone());
+                }
+            }
+            ObjectCapabilitySpec::DoorMovable => {
+                entity_commands.insert(DoorMovable);
+            }
         }
     }
 
@@ -481,6 +509,26 @@ pub fn wall_mounted_spec(proto: &ObjectPrototype) -> Option<&WallMountedSpec> {
             None
         }
     })
+}
+
+pub fn doorway_spec(proto: &ObjectPrototype) -> Option<&DoorwaySpec> {
+    proto.capabilities.iter().find_map(|cap| {
+        if let ObjectCapabilitySpec::Doorway(spec) = cap {
+            Some(spec)
+        } else {
+            None
+        }
+    })
+}
+
+pub fn normalize_wall_attachment_for_prototype(
+    proto: &ObjectPrototype,
+    mut attachment: WallAttachmentPoint,
+) -> WallAttachmentPoint {
+    if let Some(door_spec) = doorway_spec(proto) {
+        attachment.height_on_wall = door_spec.base_height_on_wall.max(0.0);
+    }
+    attachment
 }
 
 pub fn wall_occupancy_kind_for_prototype(proto: &ObjectPrototype) -> WallOccupancyKind {
@@ -864,6 +912,62 @@ pub fn setup_object_catalog(mut commands: Commands) {
         },
     );
 
+    catalog.prototypes.insert(
+        BuildObjectId::new("wall.door.basic_customer"),
+        ObjectPrototype {
+            id: BuildObjectId::new("wall.door.basic_customer"),
+            display: ObjectDisplaySpec {
+                display_name: "Basic Door".to_string(),
+                description: Some("Customer entrance door.".to_string()),
+                icon: None,
+            },
+            catalog: ObjectCatalogSpec {
+                category: ObjectCategory::Decor,
+                ribbon_tab: BuildRibbonTab::Walls,
+                ribbon_group: BuildRibbonGroup::Walls,
+                sort_order: 2000,
+                availability: CatalogAvailability::Available,
+            },
+            placement: PlacementSpec {
+                kind: PlacementKind::WallMounted,
+                footprint_half_extents: Vec2::new(32.0, 10.0),
+                placement_blocker: false,
+                navigation_blocker: false,
+            },
+            visuals: VisualSpec {
+                asset_path: "tree.png".to_string(),
+                asset_id: "wall_door_basic_customer".to_string(),
+                sprite_size: Vec2::new(64.0, 96.0),
+                foot_anchor: Vec2::new(0.0, -32.0),
+                sort_bias: 0.1,
+            },
+            rotation: RotationSpec {
+                kind: RotationKind::None,
+                rotated_asset_path: None,
+            },
+            capabilities: vec![
+                ObjectCapabilitySpec::WallMounted(WallMountedSpec {
+                    width: 64.0,
+                    height: 96.0,
+                    allowed_sides: vec![
+                        crate::store::StoreBoundarySide::Top,
+                        crate::store::StoreBoundarySide::Right,
+                    ],
+                    default_height_on_wall: 0.0,
+                    movable: false, // Use DoorMovable instead
+                }),
+                ObjectCapabilitySpec::Doorway(DoorwaySpec {
+                    access_width: 64.0,
+                    access_depth: 64.0,
+                    base_height_on_wall: 0.0,
+                    kind: crate::objects::components::DoorwayKind::CustomerEntrance,
+                }),
+                ObjectCapabilitySpec::DoorMovable,
+            ],
+            initial_state: ObjectInitialStateSpec::None,
+        },
+    );
+
     // 4. Legacy Aliases for Save/Load compat
     let shelf = catalog
         .prototypes
@@ -996,191 +1100,4 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_catalog_validation_missing_browse_point() {
-        let mut catalog = ObjectCatalog::default();
-        catalog.prototypes.insert(
-            BuildObjectId::new("fail"),
-            ObjectPrototype {
-                id: BuildObjectId::new("fail"),
-                display: ObjectDisplaySpec {
-                    display_name: "Fail".to_string(),
-                    description: None,
-                    icon: None,
-                },
-                catalog: ObjectCatalogSpec {
-                    category: ObjectCategory::Fixture,
-                    ribbon_tab: BuildRibbonTab::Fixtures,
-                    ribbon_group: BuildRibbonGroup::Shelves,
-                    sort_order: 0,
-                    availability: CatalogAvailability::Available,
-                },
-                placement: PlacementSpec {
-                    kind: PlacementKind::Floor,
-                    footprint_half_extents: Vec2::ZERO,
-                    placement_blocker: false,
-                    navigation_blocker: false,
-                },
-                visuals: VisualSpec {
-                    asset_path: "".into(),
-                    asset_id: "".into(),
-                    sprite_size: Vec2::ZERO,
-                    foot_anchor: Vec2::ZERO,
-                    sort_bias: 0.0,
-                },
-                rotation: RotationSpec {
-                    kind: RotationKind::None,
-                    rotated_asset_path: None,
-                },
-                capabilities: vec![ObjectCapabilitySpec::ProductContainer(
-                    ProductContainerSpec {
-                        container_kind: ProductContainerKind::Shelf,
-                        capacity_class: ContainerCapacityClass::Small,
-                    },
-                )],
-                initial_state: ObjectInitialStateSpec::None,
-            },
-        );
-
-        let errors = validate_object_catalog(&catalog);
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.contains("no BrowseProducts interaction point"))
-        );
-    }
-
-    #[test]
-    fn test_factory_mapping_capabilities() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<Image>();
-        crate::store::commands::register_test_messages(&mut app);
-
-        // Re-setup standard catalog for testing
-        let commands = app.world_mut().commands();
-        setup_object_catalog(commands);
-        app.update();
-
-        let catalog = app.world().resource::<ObjectCatalog>().clone();
-        let asset_server = app.world().resource::<AssetServer>().clone();
-
-        let mut commands = app.world_mut().commands();
-        let proto_id = BuildObjectId::new("fixture.shelf.basic");
-        let entity = spawn_store_object_from_prototype(
-            &mut commands,
-            &asset_server,
-            &catalog,
-            SpawnStoreObjectParams {
-                stable_id: StableObjectId(1),
-                prototype_id: proto_id.clone(),
-                placement: ObjectPlacement::Floor {
-                    world_pos: Vec2::ZERO,
-                    rotation_index: None,
-                },
-            },
-        )
-        .expect("Spawn failed");
-
-        app.update();
-
-        let world = app.world();
-        assert!(world.entity(entity).contains::<ProductContainer>());
-        assert!(world.entity(entity).contains::<NpcInteractionPoints>());
-        assert!(!world.entity(entity).contains::<CheckoutPoint>());
-        assert!(world.entity(entity).contains::<StoreObject>());
-        assert!(world.entity(entity).contains::<FloorPlacement>());
-        assert!(world.entity(entity).contains::<Footprint>());
-        assert!(!world.entity(entity).contains::<Wallprint>());
-        assert!(world.entity(entity).contains::<Movable>());
-    }
-
-    #[test]
-    fn test_wall_mounted_factory_does_not_add_floor_geometry() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<Image>();
-
-        let commands = app.world_mut().commands();
-        setup_object_catalog(commands);
-        app.update();
-
-        let catalog = app.world().resource::<ObjectCatalog>().clone();
-        let asset_server = app.world().resource::<AssetServer>().clone();
-        let segment_key = crate::store::WallSegmentKey {
-            chunk: crate::store::StoreChunkCoord { x: -1, y: -1 },
-            side: crate::store::StoreBoundarySide::Top,
-        };
-
-        let mut commands = app.world_mut().commands();
-        let entity = spawn_store_object_from_prototype(
-            &mut commands,
-            &asset_server,
-            &catalog,
-            SpawnStoreObjectParams {
-                stable_id: StableObjectId(2),
-                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
-                placement: ObjectPlacement::WallMounted {
-                    attachment: WallAttachmentPoint {
-                        segment_key,
-                        offset_along_segment: 64.0,
-                        height_on_wall: 48.0,
-                    },
-                },
-            },
-        )
-        .expect("Spawn failed");
-
-        app.update();
-
-        let world = app.world();
-        assert!(world.entity(entity).contains::<StoreObject>());
-        assert!(world.entity(entity).contains::<WallMountedPlacement>());
-        assert!(world.entity(entity).contains::<WallMounted>());
-        assert!(world.entity(entity).contains::<Wallprint>());
-        assert!(world.entity(entity).contains::<WallMountedBounds>());
-        assert!(!world.entity(entity).contains::<Footprint>());
-        assert!(!world.entity(entity).contains::<BlocksPlacement>());
-        assert!(!world.entity(entity).contains::<Movable>());
-    }
-
-    #[test]
-    fn test_wall_mounted_prototype_is_visible_in_walls_tab() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins);
-        app.add_plugins(AssetPlugin::default());
-        app.init_asset::<Image>();
-        let commands = app.world_mut().commands();
-        setup_object_catalog(commands);
-        app.update();
-
-        let catalog = app.world().resource::<ObjectCatalog>();
-        let proto = catalog
-            .prototypes
-            .get(&BuildObjectId::new("wall.decor.placeholder"))
-            .expect("wall decor prototype should exist");
-
-        assert_eq!(proto.placement.kind, PlacementKind::WallMounted);
-        assert_eq!(proto.catalog.ribbon_tab, BuildRibbonTab::Walls);
-        assert_eq!(proto.catalog.availability, CatalogAvailability::Available);
-
-        let window = catalog
-            .prototypes
-            .get(&BuildObjectId::new("wall.window.basic_visual"))
-            .expect("visual window prototype should exist");
-
-        assert_eq!(window.placement.kind, PlacementKind::WallMounted);
-        assert_eq!(window.catalog.ribbon_tab, BuildRibbonTab::Walls);
-        assert!(
-            window
-                .capabilities
-                .iter()
-                .any(|cap| matches!(cap, ObjectCapabilitySpec::Window(WindowSpec { .. })))
-        );
-    }
-}
+mod tests;

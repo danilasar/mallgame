@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod tests;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -72,6 +74,7 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
         Some(ActiveToolSession::Move(session)) => match session {
             crate::tools::MoveToolSession::Floor(s) => Some(s.source_entity),
             crate::tools::MoveToolSession::WallMounted(s) => Some(s.source_entity),
+            crate::tools::MoveToolSession::Door(s) => Some(s.source_entity),
         },
         _ => None,
     };
@@ -80,6 +83,7 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
         Some(ActiveToolSession::Move(session)) => match session {
             crate::tools::MoveToolSession::Floor(s) => Some(s.preview_entity),
             crate::tools::MoveToolSession::WallMounted(s) => Some(s.preview_entity),
+            crate::tools::MoveToolSession::Door(s) => Some(s.preview_entity),
         },
         Some(ActiveToolSession::Expansion(_)) | None => None,
     };
@@ -109,34 +113,32 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
     if let Some(hovered) = current_hovered
         .filter(|entity| Some(*entity) != current_selected && Some(*entity) != current_move_source)
     {
-        let kind = match current_mode {
-            ToolMode::Move => {
-                if params
-                    .interactive
-                    .get(hovered)
-                    .ok()
-                    .is_some_and(|(movable, wall_movable, _)| movable.is_some() || wall_movable.is_some())
-                {
-                    Some(HighlightKind::Hover)
-                } else {
-                    None
+        let kind =
+            match current_mode {
+                ToolMode::Move => {
+                    if params.interactive.get(hovered).ok().is_some_and(
+                        |(movable, wall_movable, _)| movable.is_some() || wall_movable.is_some(),
+                    ) {
+                        Some(HighlightKind::Hover)
+                    } else {
+                        None
+                    }
                 }
-            }
-            ToolMode::Delete => {
-                if params
-                    .interactive
-                    .get(hovered)
-                    .ok()
-                    .and_then(|(_, _, deletable)| deletable)
-                    .is_some()
-                {
-                    Some(HighlightKind::DeleteDanger)
-                } else {
-                    None
+                ToolMode::Delete => {
+                    if params
+                        .interactive
+                        .get(hovered)
+                        .ok()
+                        .and_then(|(_, _, deletable)| deletable)
+                        .is_some()
+                    {
+                        Some(HighlightKind::DeleteDanger)
+                    } else {
+                        None
+                    }
                 }
-            }
-            _ => Some(HighlightKind::Hover),
-        };
+                _ => Some(HighlightKind::Hover),
+            };
 
         if let Some(kind) = kind
             && let Ok(mut entity_commands) = params.commands.get_entity(hovered)
@@ -212,82 +214,5 @@ pub fn update_highlight_visuals(mut params: HighlightVisualParams) {
         {
             sprite.color = final_sprite_color(highlight, placement_preview, preview_source);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn collect_dirty_entities_deduplicates_and_preserves_order() {
-        let previous = HighlightRuntimeState {
-            hovered: Some(Entity::from_bits(1)),
-            selected: Some(Entity::from_bits(2)),
-            move_source: Some(Entity::from_bits(3)),
-            preview: Some(Entity::from_bits(4)),
-            dirty: Vec::new(),
-        };
-
-        let dirty = collect_dirty_entities(
-            &previous,
-            Some(Entity::from_bits(3)),
-            Some(Entity::from_bits(5)),
-            Some(Entity::from_bits(4)),
-            Some(Entity::from_bits(6)),
-        );
-
-        assert_eq!(
-            dirty,
-            vec![
-                Entity::from_bits(1),
-                Entity::from_bits(2),
-                Entity::from_bits(3),
-                Entity::from_bits(4),
-                Entity::from_bits(5),
-                Entity::from_bits(6),
-            ]
-        );
-    }
-
-    #[test]
-    fn final_sprite_color_respects_preview_and_source_states() {
-        let hover = HighlightIntent {
-            kind: HighlightKind::Hover,
-        };
-
-        assert_eq!(
-            final_sprite_color(Some(&hover), None, None),
-            Color::srgb(1.0, 0.94, 0.62)
-        );
-
-        let preview = PlacementPreview {
-            validation: Some(Ok(())),
-        };
-        assert_eq!(
-            final_sprite_color(Some(&hover), Some(&preview), None),
-            Color::srgba(0.45, 1.0, 0.55, 0.72)
-        );
-
-        let invalid_preview = PlacementPreview {
-            validation: Some(Err(
-                crate::store::PlacementInvalidReason::OutsideWorldBounds,
-            )),
-        };
-        assert_eq!(
-            final_sprite_color(Some(&hover), Some(&invalid_preview), None),
-            Color::srgba(1.0, 0.32, 0.28, 0.82)
-        );
-
-        assert_eq!(
-            final_sprite_color(
-                Some(&hover),
-                None,
-                Some(&PreviewSource {
-                    preview_entity: Entity::from_bits(9)
-                })
-            ),
-            Color::srgb(1.0, 0.94, 0.62).with_alpha(0.3)
-        );
     }
 }
