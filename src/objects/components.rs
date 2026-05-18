@@ -151,16 +151,12 @@ impl HighlightKind {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy)]
-pub struct PlaceableAssetId(pub &'static str);
-
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InteractionRole {
     WorldObject,
     WorldWidget,
     ToolPreview,
     Overlay,
-    #[allow(dead_code)]
     Debug,
 }
 
@@ -171,9 +167,7 @@ pub enum RuntimeOwner {
     ExpansionOverlay,
     FootprintOverlay,
     StoreOverlay,
-    #[allow(dead_code)]
     SelectionHighlight,
-    #[allow(dead_code)]
     DebugOverlay,
 }
 

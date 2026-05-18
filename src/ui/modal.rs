@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::store::{PurchaseStoreChunkRequested, StoreChunkCoord, StoreChunkKind};
-use crate::tools::{DeleteObjectRequested, ToolContext};
+use crate::tools::DeleteObjectRequested;
 use crate::ui::{
     BlocksWorldInput, ModalLayer, UiSet,
     buttons::{UiFonts, label_text, ui_button, ui_text},
@@ -103,7 +103,6 @@ fn modal_button_system(
 
 pub fn apply_modal_requests(
     mut stack: ResMut<ModalStack>,
-    mut tool: ResMut<ToolContext>,
     mut requests: MessageReader<ModalRequest>,
     mut deletes: MessageWriter<DeleteObjectRequested>,
     mut purchases: MessageWriter<PurchaseStoreChunkRequested>,
@@ -135,11 +134,9 @@ pub fn apply_modal_requests(
                         }
                     }
                 }
-                tool.active = None;
             }
             ModalRequest::CancelTop => {
                 stack.stack.pop();
-                tool.active = None;
             }
         }
     }

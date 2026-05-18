@@ -39,7 +39,6 @@ pub fn cursor_tool_system(
     mut actions: MessageWriter<ObjectActionRequested>,
 ) {
     tool.sync_from_pointer(&pointer, &targets);
-    tool.active = None;
 
     if !gate.can_use_world() {
         return;

@@ -373,17 +373,22 @@ pub fn handle_domain_event_selection_cleanup(
 
 pub fn print_positions_system(
     actions: Res<InputActionState>,
-    query: Query<(&PlaceableAssetId, &WorldPos, &SortLayer, &FootAnchor), Without<BuildGhost>>,
+    query: Query<(&ObjectPrototypeId, &WorldPos, &SortLayer, &FootAnchor), Without<BuildGhost>>,
 ) {
     if !actions.just_pressed(InputAction::PrintDebugPositions) {
         return;
     }
 
     info!("--- placeable positions ---");
-    for (asset_id, world_pos, sort_layer, foot_anchor) in &query {
+    for (prototype_id, world_pos, sort_layer, foot_anchor) in &query {
         info!(
-            "asset_id={} world_x={:.2} world_y={:.2} sort_layer={:?} foot_anchor=({:.2},{:.2})",
-            asset_id.0, world_pos.0.x, world_pos.0.y, sort_layer, foot_anchor.0.x, foot_anchor.0.y
+            "prototype_id={} world_x={:.2} world_y={:.2} sort_layer={:?} foot_anchor=({:.2},{:.2})",
+            prototype_id.0.0,
+            world_pos.0.x,
+            world_pos.0.y,
+            sort_layer,
+            foot_anchor.0.x,
+            foot_anchor.0.y
         );
     }
 }

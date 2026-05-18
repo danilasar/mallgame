@@ -287,7 +287,6 @@ pub fn spawn_store_object_from_prototype(
             InteractionRole::WorldObject,
             ObjectStableId(params.stable_id),
             ObjectPrototypeId(params.prototype_id.clone()),
-            PlaceableAssetId(Box::leak(proto.visuals.asset_id.clone().into_boxed_str())), // Legacy compat
             Name::new(proto.visuals.asset_id.clone()),
         ),
     ));
@@ -649,16 +648,6 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
         }
     }
     errors
-}
-
-// Legacy compat markers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub enum BuildPrototypeId {
-    Chair,
-    Table,
-    Tree,
 }
 
 #[cfg(test)]
