@@ -93,10 +93,11 @@ pub fn reset_runtime_for_load(
     modal_stack: &mut ResMut<ModalStack>,
     targets: &mut ResMut<PointerTargets>,
     cycle: &mut ResMut<PrimaryPointerCycle>,
-    gate: &mut ResMut<ToolInputGate>,
-    drag: &mut ResMut<PointerDragState>,
+    mut gate: ResMut<ToolInputGate>,
+    mut drag: ResMut<PointerDragState>,
+    mut command_queue: ResMut<crate::store::commands::DomainCommandQueue>,
     runtime_owned: &Query<Entity, With<crate::objects::components::RuntimeOwned>>,
-) {
+    ) {
     session.active = None;
     return_state.previous = None;
     next_mode.set(ToolMode::Cursor);
@@ -108,11 +109,13 @@ pub fn reset_runtime_for_load(
     cycle.owner = crate::tools::PointerPressOwner::None;
     gate.world_blocked = false;
     drag.is_camera_dragging = false;
+    command_queue.commands.clear();
 
     for entity in runtime_owned {
         commands.entity(entity).despawn();
     }
-}
+    }
+
 
 pub fn apply_load_plan(
     commands: &mut Commands,

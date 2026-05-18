@@ -29,28 +29,17 @@ pub struct PurchaseStoreChunkRequested {
     pub kind: StoreChunkKind,
 }
 
-pub fn apply_purchase_store_chunk_requested(
+pub fn convert_purchase_requests_to_commands(
     mut events: MessageReader<PurchaseStoreChunkRequested>,
-    mut store: ResMut<StoreArea>,
-    world: Res<WorldBounds>,
+    mut queue: ResMut<crate::store::commands::DomainCommandQueue>,
 ) {
     for event in events.read() {
-        let validation = validate_chunk_purchase(&world, &store, event.coord, event.kind);
-        if validation.valid {
-            store
-                .owned_chunks
-                .insert(event.coord, StoreChunkData { kind: event.kind });
-            info!(
-                "Purchased store chunk {:?}; owned_count={}",
-                event.coord,
-                store.owned_chunks.len()
-            );
-        } else {
-            info!(
-                "Rejected store chunk purchase {:?}: {:?}",
-                event.coord, validation.reason
-            );
-        }
+        queue.commands.push_back(crate::store::commands::DomainCommand::PurchaseChunk(
+            crate::store::commands::PurchaseChunkCommand {
+                coord: event.coord,
+                kind: event.kind,
+            }
+        ));
     }
 }
 

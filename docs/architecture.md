@@ -8,7 +8,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `ToolInputGate` converts input, pointer ownership, and modal/UI blocking into safe tool signals.
 - `ToolRuntime` owns active tool mode and unfinished tool sessions.
 - `UiRuntime` owns right dock, bottom build panel, modal stack, camera controls, and world widgets.
-- `Domain systems` mutate gameplay truth.
+- `Domain systems` mutate gameplay truth via validated `DomainCommands`.
 - `Presentation` derives overlays, highlights, transforms, and depth.
 
 ## Main Flow
@@ -21,20 +21,23 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 6. modal/UI request systems
 7. `camera_drag_system`
 8. tool systems
-9. placement validation
-10. domain apply systems
-11. presentation sync and overlays
+9. Request-to-Command conversion
+10. `apply_domain_commands` (Atomic mutation)
+11. `ApplyDeferred` (Bevy entity sync)
+12. Domain event consumers (`PostDomainApply`)
+13. presentation sync and overlays
 
 ## Module Map
 
 - `src/main.rs`: app setup and plugin order.
 - `src/input`: raw input, pointer conversion, drag state, and picking.
 - `src/tools`: tool modes, pointer gate, sessions, previews, and tool-specific systems.
-- `src/ui`: UI layers, modals, right dock, build panel, camera controls, and world widgets.
-- `src/store`: world bounds, store chunks, expansion validation, and store overlays.
+- `src/ui`: UI layers, modals, right dock, build panel, camera controls, world widgets, and object inspector.
+- `src/store`: world bounds, store chunks, expansion validation, store overlays, and domain commands/events.
 - `src/placement`: footprint geometry and placement validation.
 - `src/presentation`: projection, transform sync, highlights, and footprint overlays.
 - `src/objects`: shared components, prototypes, and rotation data.
+- `src/save`: authority-based save/load model.
 
 ## Key Runtime Types
 
@@ -43,6 +46,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `FootAnchor` marks sorting/picking anchor.
 - `Footprint` is local collision/placement geometry.
 - `StoreObject` marks entities that live inside the store and can be moved or deleted.
+- `ObjectStableId` is a persistent ID for objects across save/load.
 - `Rotatable` carries rotation variants for sprite, footprint, foot anchor, and visual offset.
 - `StoreArea` owns bought `4x4` chunks.
 - `WorldBounds` owns the outer world rectangle.
@@ -51,6 +55,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `ModalStack` stores modal lifecycle and blocking state.
 - `PointerTargets` stores hovered world object/widget/debug target separation.
 - `PrimaryPointerCycle` stores primary click ownership across frame boundaries.
+- `SelectionState` owns currently focused objects.
 
 ## Requests And Events
 
@@ -68,13 +73,28 @@ These are boundaries, not direct gameplay mutations:
 - `PurchaseStoreChunkRequested`
 - `CameraControlRequested`
 
+## Domain Commands & Events
+
+Gameplay mutation authority:
+
+- `DomainCommand`: Encapsulates a validated domain operation (Build, Move, Rotate, Delete, Purchase).
+- `DomainEvent`: Represents a fact that occurred after a successful mutation (ObjectBuilt, ObjectMoved, etc.).
+- `DomainCommandQueue`: Deterministic queue for processing mutations in frame sequence.
+
+## Authority Save Model
+
+- `SaveGame` persists gameplay truth only: store chunks, real objects, stable IDs, prototype IDs, and positions.
+- Transient runtime state (sessions, previews, widgets, selection, modal stack) is NOT saved.
+- Load pipeline is transactional: validation occurs before clearing the current world.
+- Runtime state is fully reset during load to ensure consistency.
+
 ## Current Implementation Notes
 
 - Tool sessions are preview-based for build and move.
-- The build panel currently switches prototypes by request and may restart the build session in place when already in `Build`.
+- Selection and a real `ObjectInspector` are implemented.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
-- `SelectionState` and a real `ObjectInspector` are still future work.
+- Domain mutations are unified behind the `DomainCommand` system.
 
 ## Store Rules
 
@@ -86,8 +106,7 @@ These are boundaries, not direct gameplay mutations:
 
 ## Future Work
 
-- Selection/inspector state.
 - Exact polygon coverage for store validation.
-- More request-driven UI surfaces.
-- Save/load of gameplay truth only, not runtime previews or overlays.
-
+- NPC simulation (pathfinding and task planning reacting to `DomainEvents`).
+- Economy system and currency-based validation in commands.
+- Save migrations and multiple slots.

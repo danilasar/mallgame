@@ -29,6 +29,7 @@ use crate::objects::components::*;
 use crate::objects::prototypes::{BuildPrototypeId, spawn_store_object_from_prototype};
 use crate::objects::rotation::{Rotatable, RotateObjectRequested};
 use crate::store::{StoreArea, WorldBounds};
+use crate::store::commands::{DomainCommand, DomainCommandQueue, DomainCommandSet, MoveObjectCommand, DeleteObjectCommand, BuildObjectCommand, apply_domain_commands};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolSet {
@@ -279,138 +280,61 @@ pub struct ToolChangedRequested {
     pub mode: ToolMode,
 }
 
-pub fn apply_committed_events(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    world_bounds: Res<WorldBounds>,
-    store_area: Res<StoreArea>,
+pub fn convert_committed_requests_to_commands(
+    mut queue: ResMut<DomainCommandQueue>,
+    mut allocator: ResMut<StableObjectIdAllocator>,
     mut moves: MessageReader<MoveObjectCommitted>,
     mut deletes: MessageReader<DeleteObjectRequested>,
     mut builds: MessageReader<BuildObjectRequested>,
-    mut tool: ResMut<ToolContext>,
-    mut allocator: ResMut<StableObjectIdAllocator>,
-    mut set: ParamSet<(
-        Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
-        Query<
-            (
-                &mut Rotatable,
-                &mut Sprite,
-                &mut Footprint,
-                &mut FootAnchor,
-                &mut VisualOffset,
-            ),
-            Without<ToolPreview>,
-        >,
-    )>,
+    stable_ids: Query<&ObjectStableId>,
+    world_positions: Query<&WorldPos>,
 ) {
     for movement in moves.read() {
-        // 1. Revalidate Move using p0
-        let validation = {
-            let footprints = set.p0();
-            let Ok((_, _, footprint, _)) = footprints.get(movement.entity) else {
-                continue;
-            };
-
-            crate::placement::validate_placement(
-                &world_bounds,
-                &store_area,
-                &footprints,
-                footprint,
-                movement.new_pos,
-                crate::placement::PlacementValidationOptions {
-                    ignore_entity: Some(movement.entity),
-                },
-            )
-        };
-
-        if validation.is_ok() {
-            if let Ok(mut e) = commands.get_entity(movement.entity) {
-                e.insert(WorldPos(movement.new_pos));
+        if let Ok(stable_id) = stable_ids.get(movement.entity) {
+            if let Ok(current_pos) = world_positions.get(movement.entity) {
+                queue.commands.push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                    object_id: stable_id.0,
+                    from: current_pos.0,
+                    to: movement.new_pos,
+                }));
             }
-
-            // 2. Apply final rotation using p1
-            if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) =
-                set.p1().get_mut(movement.entity)
-            {
-                if movement.rotation < rotatable.variants.len() {
-                    rotatable.current = movement.rotation;
-                    let variant = &rotatable.variants[rotatable.current];
-                    sprite.image = variant.sprite.clone();
-                    *fp = variant.footprint.clone();
-                    anchor.0 = variant.foot_anchor;
-                    offset.0 = variant.visual_offset;
-                }
-            }
-
-            info!(
-                "MoveObjectCommitted entity={:?} old=({:.1},{:.1}) new=({:.1},{:.1}) rotation={}",
-                movement.entity,
-                movement.old_pos.x,
-                movement.old_pos.y,
-                movement.new_pos.x,
-                movement.new_pos.y,
-                movement.rotation
-            );
-        } else {
-            warn!(
-                "MoveObjectCommitted REJECTED for entity={:?}: {:?}",
-                movement.entity,
-                validation.err()
-            );
         }
     }
 
     for delete in deletes.read() {
-        if let Some(active) = tool.active {
-            let active_entity = match active {
-                ActiveToolAction::Moving { entity, .. }
-                | ActiveToolAction::PendingDelete { entity } => Some(entity),
-                ActiveToolAction::Building { ghost, .. } => Some(ghost),
-            };
-            if active_entity == Some(delete.entity) {
-                tool.active = None;
-            }
+        if let Ok(stable_id) = stable_ids.get(delete.entity) {
+            queue.commands.push_back(DomainCommand::DeleteObject(DeleteObjectCommand {
+                object_id: stable_id.0,
+            }));
         }
-        commands.entity(delete.entity).despawn();
-        info!("DeleteObjectRequested entity={:?}", delete.entity);
     }
 
     for build in builds.read() {
-        // Revalidate Build using p0
-        let spec = crate::objects::prototypes::prototype_spec(build.prototype);
-        let footprint = Footprint::rectangle(spec.footprint_half_extents);
+        let stable_id = allocator.allocate();
+        queue.commands.push_back(DomainCommand::BuildObject(BuildObjectCommand {
+            object_id: stable_id,
+            prototype_id: build.prototype,
+            world_pos: build.pos,
+            rotation_index: Some(build.rotation),
+        }));
+    }
+}
 
-        let validation = crate::placement::validate_placement(
-            &world_bounds,
-            &store_area,
-            &set.p0(),
-            &footprint,
-            build.pos,
-            crate::placement::PlacementValidationOptions::default(),
-        );
-
-        if validation.is_ok() {
-            let stable_id = allocator.allocate();
-            spawn_store_object_from_prototype(
-                &mut commands,
-                &asset_server,
-                crate::objects::prototypes::SpawnStoreObjectParams {
-                    stable_id,
-                    prototype_id: build.prototype,
-                    world_pos: build.pos,
-                    rotation_index: Some(build.rotation),
-                },
-            );
-            info!(
-                "BuildObjectRequested prototype={:?} pos=({:.1},{:.1}) rotation={} stable_id={:?}",
-                build.prototype, build.pos.x, build.pos.y, build.rotation, stable_id
-            );
-        } else {
-            warn!(
-                "BuildObjectRequested REJECTED for prototype={:?}: {:?}",
-                build.prototype,
-                validation.err()
-            );
+pub fn handle_domain_event_selection_cleanup(
+    mut events: MessageReader<crate::store::events::DomainEvent>,
+    mut selection: ResMut<SelectionState>,
+    stable_ids: Query<(Entity, &ObjectStableId)>,
+) {
+    for event in events.read() {
+        if let crate::store::events::DomainEvent::ObjectDeleted { id } = event {
+            if let Some(selected_entity) = selection.primary {
+                if let Ok((_, stable_id)) = stable_ids.get(selected_entity) {
+                    if &stable_id.0 == id {
+                        info!("Clearing selection for deleted object {:?}", id);
+                        selection.primary = None;
+                    }
+                }
+            }
         }
     }
 }

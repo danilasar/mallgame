@@ -15,17 +15,19 @@ use objects::rotation::*;
 use presentation::*;
 use save::*;
 use store::*;
+use store::commands::*;
 use tools::*;
 use ui::*;
 
 fn main() {
-    App::new()
-        .insert_resource(ClearColor(Color::srgb(0.10, 0.12, 0.14)))
+    let mut app = App::new();
+    app.insert_resource(ClearColor(Color::srgb(0.10, 0.12, 0.14)))
         .insert_resource(IsoProjection::default())
         .init_resource::<PointerContext>()
         .init_resource::<PointerTargets>()
         .init_resource::<PointerDragState>()
         .init_resource::<BuildPrototypes>()
+        .init_resource::<DomainCommandQueue>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Continuous 2D Isometric Tools Prototype".to_owned(),
@@ -67,8 +69,11 @@ fn main() {
                 UiSet::WorldWidgets,
                 ToolSet::InputGate,
                 ToolSet::ToolUpdate,
+                DomainCommandSet::RequestToCommand,
+                DomainCommandSet::ApplyCommands,
+                DomainCommandSet::EmitEvents,
+                DomainCommandSet::PostDomainApply,
                 ToolSet::Validation,
-                ToolSet::Commit,
             )
                 .chain(),
         )
@@ -96,18 +101,29 @@ fn main() {
         )
         .add_systems(
             Update,
+            (
+                convert_committed_requests_to_commands,
+                crate::objects::rotation::handle_rotate_requests,
+                crate::store::expansion::convert_purchase_requests_to_commands,
+            )
+                .in_set(DomainCommandSet::RequestToCommand),
+        )
+        .add_systems(
+            Update,
+            apply_domain_commands.in_set(DomainCommandSet::ApplyCommands),
+        )
+        .add_systems(
+            Update,
             unified_tool_validation_system.in_set(ToolSet::Validation),
         )
         .add_systems(
             Update,
             (
-                apply_committed_events,
-                crate::store::apply_purchase_store_chunk_requested,
                 log_tool_changed_requests,
                 print_positions_system,
+                handle_domain_event_selection_cleanup,
             )
-                .chain()
-                .in_set(ToolSet::Commit),
+                .in_set(DomainCommandSet::PostDomainApply),
         )
         .add_systems(
             PostUpdate,
@@ -118,8 +134,12 @@ fn main() {
                 update_contextual_world_widgets.after(sync_visual_transform),
             )
                 .chain(),
-        )
-        .run();
+        );
+    
+    app.add_message::<crate::store::events::DomainEvent>();
+    app.add_message::<crate::store::commands::DomainCommandRejected>();
+
+    app.run();
 }
 
 fn setup(

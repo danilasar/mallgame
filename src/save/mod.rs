@@ -91,6 +91,7 @@ struct QuickLoadParams<'w, 's> {
     cycle: ResMut<'w, crate::tools::PrimaryPointerCycle>,
     gate: ResMut<'w, crate::tools::ToolInputGate>,
     drag: ResMut<'w, crate::input::PointerDragState>,
+    command_queue: ResMut<'w, crate::store::commands::DomainCommandQueue>,
     runtime_owned: Query<'w, 's, Entity, With<crate::objects::components::RuntimeOwned>>,
 }
 
@@ -114,8 +115,9 @@ fn handle_quick_load(
                             &mut p.modal_stack,
                             &mut p.targets,
                             &mut p.cycle,
-                            &mut p.gate,
-                            &mut p.drag,
+                            p.gate,
+                            p.drag,
+                            p.command_queue,
                             &p.runtime_owned,
                         );
                         

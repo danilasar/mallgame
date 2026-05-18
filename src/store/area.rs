@@ -187,10 +187,7 @@ impl Plugin for StorePlugin {
             .add_systems(Startup, setup_store_area)
             .add_systems(
                 Update,
-                (
-                    crate::store::apply_purchase_store_chunk_requested,
-                    clamp_camera_to_world_bounds.after(crate::input::camera_drag_system),
-                ),
+                clamp_camera_to_world_bounds.after(crate::input::camera_drag_system),
             );
     }
 }
