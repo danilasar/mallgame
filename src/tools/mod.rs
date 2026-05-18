@@ -26,10 +26,10 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
-use crate::objects::prototypes::{BuildPrototypeId, spawn_store_object_from_prototype};
-use crate::objects::rotation::{Rotatable, RotateObjectRequested};
+use crate::objects::prototypes::BuildPrototypeId;
+use crate::objects::rotation::RotateObjectRequested;
 use crate::store::{StoreArea, WorldBounds};
-use crate::store::commands::{DomainCommand, DomainCommandQueue, DomainCommandSet, MoveObjectCommand, DeleteObjectCommand, BuildObjectCommand, apply_domain_commands};
+use crate::store::commands::{DomainCommand, DomainCommandQueue, MoveObjectCommand, DeleteObjectCommand, BuildObjectCommand};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolSet {
@@ -206,6 +206,7 @@ pub enum ObjectActionOrigin {
 pub fn handle_object_action_requests(
     mut _commands: Commands,
     mut requests: MessageReader<ObjectActionRequested>,
+    mode: Res<State<ToolMode>>,
     mut selection: ResMut<SelectionState>,
     mut move_requests: MessageWriter<StartMoveObjectRequested>,
     mut rotate_requests: MessageWriter<RotateObjectRequested>,
@@ -238,6 +239,12 @@ pub fn handle_object_action_requests(
                     entity: request.entity,
                     steps: 1,
                 });
+                // NEW: In Move mode, clicking Rotate also starts the move session (picks up the object).
+                if *mode.get() == ToolMode::Move {
+                    move_requests.write(StartMoveObjectRequested {
+                        entity: request.entity,
+                    });
+                }
             }
             ObjectActionKind::Delete => {
                 modal_requests.write(crate::ui::ModalRequest::Open(
@@ -253,7 +260,6 @@ pub fn handle_object_action_requests(
 #[derive(Message, Debug, Clone, Copy)]
 pub struct MoveObjectCommitted {
     pub entity: Entity,
-    pub old_pos: Vec2,
     pub new_pos: Vec2,
     pub rotation: usize,
 }
@@ -296,6 +302,7 @@ pub fn convert_committed_requests_to_commands(
                     object_id: stable_id.0,
                     from: current_pos.0,
                     to: movement.new_pos,
+                    rotation_index: Some(movement.rotation),
                 }));
             }
         }

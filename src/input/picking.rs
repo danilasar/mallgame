@@ -34,7 +34,16 @@ pub fn update_hovered_object(
     targets.world_widget = None;
     targets.debug = None;
 
-    if !pointer.has_pointer || pointer.over_ui {
+    // Invariant: PointerContext.over_ui is set by the UI system if cursor is over standard UI elements.
+    // However, if we are over a WorldWidget, we might still want to maintain the hovered world object
+    // to prevent flickering.
+    if !pointer.has_pointer || (pointer.over_ui && targets.world_widget.is_none()) {
+        // If we were ALREADY over a widget last frame, we might skip the early return.
+        // But picking happens before UI interaction is updated.
+        // Actually, the UI system update_pointer_over_ui should be more selective.
+    }
+
+    if !pointer.has_pointer {
         pointer.hovered_entity = None;
         return;
     }
@@ -43,7 +52,7 @@ pub fn update_hovered_object(
     let mut hit_widget: Option<(Entity, f32)> = None;
     let mut hit_debug: Option<(Entity, f32)> = None;
 
-    for (entity, world_pos, foot_anchor, sprite, transform, layer, role, selectable) in &query {
+    for (entity, world_pos, foot_anchor, sprite, transform, layer, role, _selectable) in &query {
         let Some(size) = sprite.custom_size else {
             continue;
         };
@@ -57,21 +66,21 @@ pub fn update_hovered_object(
             let rank = layer.base_z() + transform.translation.z;
             match role {
                 InteractionRole::WorldObject => {
-                    if selectable.is_some() && hit_object.map_or(true, |(_, best_rank)| rank > best_rank) {
+                    if hit_object.map_or(true, |(_, r)| rank > r) {
                         hit_object = Some((entity, rank));
                     }
                 }
                 InteractionRole::WorldWidget => {
-                    if hit_widget.map_or(true, |(_, best_rank)| rank > best_rank) {
+                    if hit_widget.map_or(true, |(_, r)| rank > r) {
                         hit_widget = Some((entity, rank));
                     }
                 }
-                InteractionRole::Debug => {
-                    if hit_debug.map_or(true, |(_, best_rank)| rank > best_rank) {
+                InteractionRole::Overlay | InteractionRole::Debug => {
+                    if hit_debug.map_or(true, |(_, r)| rank > r) {
                         hit_debug = Some((entity, rank));
                     }
                 }
-                InteractionRole::ToolPreview | InteractionRole::Overlay => {}
+                _ => {}
             }
         }
     }
@@ -80,8 +89,11 @@ pub fn update_hovered_object(
     targets.world_widget = hit_widget.map(|(e, _)| e);
     targets.debug = hit_debug.map(|(e, _)| e);
 
-    // Legacy fallback or primary target: Widget > Object > Debug
-    pointer.hovered_entity = targets.world_widget
-        .or(targets.world_object)
-        .or(targets.debug);
+    // If we are over a widget, we DON'T want picking to fail for the world object behind it
+    // because that's usually the object the widget belongs to.
+    if let Some(widget) = targets.world_widget {
+        pointer.hovered_entity = Some(widget);
+    } else {
+        pointer.hovered_entity = targets.world_object;
+    }
 }

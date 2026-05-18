@@ -48,6 +48,7 @@ pub fn update_tool_input_gate(
     pointer: Res<PointerContext>,
     drag: Res<PointerDragState>,
     modal: Res<ModalStack>,
+    targets: Res<crate::input::PointerTargets>,
     mut cycle: ResMut<PrimaryPointerCycle>,
     mut gate: ResMut<ToolInputGate>,
 ) {
@@ -66,17 +67,17 @@ pub fn update_tool_input_gate(
         cycle.consumed = false;
         cycle.drag_started = false;
 
-        // Only set if not already overridden by a system earlier in the frame (like a widget)
-        if cycle.owner == PointerPressOwner::None {
-            if is_modal_blocking {
-                cycle.owner = PointerPressOwner::Modal;
-            } else if is_ui_blocking {
-                cycle.owner = PointerPressOwner::Ui;
-            } else if pointer.has_pointer {
-                cycle.owner = PointerPressOwner::World;
-            } else {
-                cycle.owner = PointerPressOwner::None;
-            }
+        // Prioritize owner. Detect WorldWidget early via targets.
+        if is_modal_blocking {
+            cycle.owner = PointerPressOwner::Modal;
+        } else if targets.world_widget.is_some() {
+            cycle.owner = PointerPressOwner::WorldWidget;
+        } else if is_ui_blocking {
+            cycle.owner = PointerPressOwner::Ui;
+        } else if pointer.has_pointer {
+            cycle.owner = PointerPressOwner::World;
+        } else {
+            cycle.owner = PointerPressOwner::None;
         }
     } else {
         cycle.started_this_frame = false;

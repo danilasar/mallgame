@@ -7,9 +7,24 @@ use crate::store::{
     owned_bounds,
 };
 
+#[derive(Message, Debug, Clone, Copy)]
+pub struct PurchaseStoreChunkRequested {
+    pub coord: StoreChunkCoord,
+    pub kind: StoreChunkKind,
+}
+
 #[derive(Resource, Debug, Clone)]
 pub struct WorldBounds {
     pub rect: Rect,
+}
+
+impl WorldBounds {
+    pub fn contains_chunk(&self, coord: StoreChunkCoord) -> bool {
+        let size = Vec2::splat(128.0);
+        let min = Vec2::new(coord.x as f32 * size.x, coord.y as f32 * size.y);
+        let chunk_rect = Rect::from_corners(min, min + size);
+        self.rect.contains(chunk_rect.min) && self.rect.contains(chunk_rect.max)
+    }
 }
 
 impl Default for WorldBounds {
@@ -183,7 +198,7 @@ pub struct StorePlugin;
 impl Plugin for StorePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldBounds>()
-            .add_message::<crate::store::PurchaseStoreChunkRequested>()
+            .add_message::<PurchaseStoreChunkRequested>()
             .add_systems(Startup, setup_store_area)
             .add_systems(
                 Update,
@@ -202,7 +217,7 @@ fn setup_store_area(mut commands: Commands, world: Res<WorldBounds>) {
 fn clamp_camera_to_world_bounds(
     world: Res<WorldBounds>,
     projection: Res<IsoProjection>,
-    mut cameras: Query<(&Camera, &Projection, &mut Transform), With<Camera2d>>,
+    mut camera_query: Query<(&Camera, &Projection, &mut Transform), With<Camera2d>>,
 ) {
     let corners = [
         world.rect.min,
@@ -218,7 +233,7 @@ fn clamp_camera_to_world_bounds(
         max = max.max(projected);
     }
 
-    for (camera, projection_component, mut transform) in cameras.iter_mut() {
+    for (camera, projection_component, mut transform) in camera_query.iter_mut() {
         let Some(viewport_size) = camera.logical_viewport_size() else {
             continue;
         };
@@ -330,12 +345,6 @@ mod tests {
         let store = StoreArea::new(Vec2::ZERO);
 
         // Owned chunks are x: -5..-1, y: -4..-1
-        // Let's create a thin polygon that crosses from unowned to owned
-        // Vertices might be inside, but midpoint outside.
-        // Wait, if vertices are inside but midpoint outside, it means it crosses a "hole" or "non-convex" part.
-        // Chunks are always convex (rects), but the union might not be.
-        // Initial store is a 5x4 block (convex).
-
         // Let's test a diagonal that crosses outside.
         // Owned box: [-5*128, -4*128] to [0, 0] approx (anchor at zero).
         let p1 = Vec2::new(-10.0, -10.0); // Inside

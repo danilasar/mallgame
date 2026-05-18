@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Deserialize, Serialize};
+use bevy::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StoreChunkCoord {
@@ -41,7 +42,7 @@ impl Default for StoreExpansionPolicy {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StoreChunkBounds {
     pub min: StoreChunkCoord,
     pub max: StoreChunkCoord,

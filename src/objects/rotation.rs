@@ -1,7 +1,21 @@
 use bevy::prelude::*;
 
-use crate::objects::components::{BlocksPlacement, FootAnchor, Footprint, VisualOffset, WorldPos};
-use crate::tools::{ActiveToolSession, ToolPreview, ToolSessionState, PreviewSource};
+pub struct ObjectRotationPlugin;
+
+impl Plugin for ObjectRotationPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_message::<RotateObjectRequested>().add_systems(
+            Update,
+            handle_rotate_requests.in_set(crate::store::commands::DomainCommandSet::RequestToCommand),
+        );
+    }
+}
+
+#[derive(Message, Debug, Clone, Copy)]
+pub struct RotateObjectRequested {
+    pub entity: Entity,
+    pub steps: i32,
+}
 
 #[derive(Component, Debug, Clone)]
 pub struct Rotatable {
@@ -12,26 +26,9 @@ pub struct Rotatable {
 #[derive(Debug, Clone)]
 pub struct RotationVariant {
     pub sprite: Handle<Image>,
-    pub footprint: Footprint,
+    pub footprint: crate::objects::components::Footprint,
     pub foot_anchor: Vec2,
     pub visual_offset: Vec2,
-}
-
-#[derive(Message, Debug, Clone, Copy)]
-pub struct RotateObjectRequested {
-    pub entity: Entity,
-    pub steps: i32,
-}
-
-pub struct ObjectRotationPlugin;
-
-impl Plugin for ObjectRotationPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_message::<RotateObjectRequested>().add_systems(
-            Update,
-            handle_rotate_requests.in_set(crate::store::commands::DomainCommandSet::RequestToCommand),
-        );
-    }
 }
 
 pub fn handle_rotate_requests(

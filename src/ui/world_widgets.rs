@@ -7,8 +7,8 @@ use crate::objects::rotation::Rotatable;
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
 use crate::tools::{
-    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, PointerPressOwner,
-    PrimaryPointerCycle, SelectionState, ToolMode,
+    ActiveToolSession, ObjectActionKind, ObjectActionOrigin, ObjectActionRequested,
+    PointerPressOwner, PrimaryPointerCycle, ToolMode,
 };
 use crate::ui::{
     BlocksWorldInput, UiSet, WorldWidgetsLayer,
@@ -45,6 +45,7 @@ fn rotate_widget_button_system(
             continue;
         }
 
+        // IMPORTANT: Ensure the press owner is set correctly to block tools from using this click
         cycle.owner = PointerPressOwner::WorldWidget;
         cycle.consumed = true;
 
@@ -61,7 +62,7 @@ pub fn update_contextual_world_widgets(
     mut commands: Commands,
     mode: Res<State<ToolMode>>,
     session: Res<crate::tools::ToolSessionState>,
-    selection: Res<SelectionState>,
+    targets: Res<crate::input::PointerTargets>,
     projection: Res<IsoProjection>,
     mut widgets: Query<(Entity, &mut RotateWorldWidget, &mut Node, &Interaction)>,
     fonts: Res<UiFonts>,
@@ -69,9 +70,22 @@ pub fn update_contextual_world_widgets(
     objects: Query<(&WorldPos, &Footprint, Option<&Rotatable>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
-    // Widgets are only shown when a single object is selected and no tool session is active
-    let target = if session.active.is_none() && (*mode.get() == ToolMode::Cursor || *mode.get() == ToolMode::Move) {
-        selection.primary
+    // 1. Determine target entity.
+    // In Move mode, show Rotate button ONLY if NOT currently dragging.
+    // Cursor mode NO LONGER shows the rotate button (as per user request).
+    let target = if *mode.get() == ToolMode::Move && session.active.is_none() {
+        if let Some(hovered) = targets.world_object {
+            Some(hovered)
+        } else if let Some((_, widget, _, _)) = widgets.iter().next() {
+            // Flicker Fix: Maintain target if we are hovering the widget itself.
+            if targets.world_widget.is_some() {
+                Some(widget.target)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -95,7 +109,7 @@ pub fn update_contextual_world_widgets(
             commands.entity(entity).despawn();
         }
         return;
-    }
+    };
 
     let Some(layer) = layer.iter().next() else {
         return;
@@ -121,6 +135,7 @@ pub fn update_contextual_world_widgets(
         widget.target = target;
         node.left = Val::Px(viewport.x - 17.0);
         node.top = Val::Px(viewport.y - 17.0);
+        node.display = Display::Flex;
     } else {
         let button = commands
             .spawn((

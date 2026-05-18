@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::save::types::*;
 use crate::objects::prototypes::BuildPrototypeId;
-use crate::store::{StoreArea, StoreChunkCoord, WorldBounds};
+use crate::store::{StoreChunkCoord, WorldBounds};
 use crate::objects::components::StableObjectId;
 
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ pub struct StoreAreaValidationReport {
 
 pub fn validate_loaded_store_area(
     store_save: &StoreSave,
-    world_bounds: &WorldBounds,
+    _world_bounds: &WorldBounds,
 ) -> StoreAreaValidationReport {
     let mut valid_chunks = Vec::new();
     let mut issues = Vec::new();
@@ -82,8 +82,7 @@ pub fn validate_loaded_store_area(
             continue;
         }
 
-        // Basic bounds check (simplified world coords to chunk coords check)
-        // StoreArea logic can handle chunks, but we check if it's within world logic limits
+        // Basic bounds check
         if chunk.coord.x.abs() > 100 || chunk.coord.y.abs() > 100 {
             issues.push(LoadIssue::InvalidChunk(chunk.coord));
             continue;

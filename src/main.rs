@@ -11,11 +11,10 @@ use bevy::prelude::*;
 use input::*;
 use objects::components::*;
 use objects::prototypes::*;
-use objects::rotation::*;
+use objects::rotation::ObjectRotationPlugin;
 use presentation::*;
 use save::*;
 use store::*;
-use store::commands::*;
 use tools::*;
 use ui::*;
 

@@ -123,18 +123,14 @@ pub fn move_tool_system(
             move_session.awaiting_fresh_click = false;
         }
 
-        let source_entity = move_session.source_entity;
-        let preview_entity = move_session.preview_entity;
-
-        if let Ok((mut world_pos, preview)) = ghost_positions.get_mut(preview_entity) {
+        if let Ok((mut world_pos, preview)) = ghost_positions.get_mut(move_session.preview_entity) {
             world_pos.0 = pointer.world_pos;
 
             if gate.primary_world_click_released && !move_session.awaiting_fresh_click {
                 let is_valid = preview.validation.as_ref().map_or(false, |r| r.is_ok());
                 if is_valid {
                     committed.write(MoveObjectCommitted {
-                        entity: source_entity,
-                        old_pos: move_session.original_world_pos,
+                        entity: move_session.source_entity,
                         new_pos: world_pos.0,
                         rotation: move_session.rotation_index,
                     });

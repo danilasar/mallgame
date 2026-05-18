@@ -131,12 +131,13 @@ fn render_active_interface_panel(
     mut commands: Commands,
     active: Res<ActiveInterfacePanel>,
     selection: Res<SelectionState>,
+    tool_mode: Res<State<ToolMode>>,
     fonts: Res<UiFonts>,
     layer: Query<Entity, With<WindowLayer>>,
     existing: Query<Entity, With<InterfacePanelContent>>,
     objects: Query<(Option<&Name>, Option<&Movable>, Option<&Rotatable>, Option<&Deletable>)>,
 ) {
-    if !active.is_changed() && !selection.is_changed() {
+    if !active.is_changed() && !selection.is_changed() && !tool_mode.is_changed() {
         return;
     }
 
@@ -206,7 +207,7 @@ fn render_active_interface_panel(
                 .with_child(label_text("Debug", &fonts));
         }
         InterfacePanelId::ObjectInspector => {
-            render_object_inspector(&mut commands, content, &selection, &fonts, objects);
+            render_object_inspector(&mut commands, content, &selection, &fonts, *tool_mode.get(), objects);
         }
         InterfacePanelId::Settings => {
             commands

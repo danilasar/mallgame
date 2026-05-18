@@ -2,7 +2,9 @@ use bevy::prelude::*;
 
 use crate::objects::components::{Deletable, Movable};
 use crate::objects::rotation::Rotatable;
-use crate::tools::{ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, SelectionState};
+use crate::tools::{
+    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, SelectionState, ToolMode,
+};
 use crate::ui::buttons::{UiFonts, label_text, ui_button};
 use crate::ui::{ActiveInterfacePanel, InterfacePanelId};
 
@@ -17,19 +19,31 @@ pub fn render_object_inspector(
     parent: Entity,
     selection: &SelectionState,
     fonts: &UiFonts,
-    objects: Query<(Option<&Name>, Option<&Movable>, Option<&Rotatable>, Option<&Deletable>)>,
+    mode: ToolMode,
+    objects: Query<(
+        Option<&Name>,
+        Option<&Movable>,
+        Option<&Rotatable>,
+        Option<&Deletable>,
+    )>,
 ) {
     let Some(target) = selection.primary else {
-        commands.entity(parent).with_child(label_text("No selection", fonts));
+        commands
+            .entity(parent)
+            .with_child(label_text("No selection", fonts));
         return;
     };
 
     let Ok((name, movable, rotatable, deletable)) = objects.get(target) else {
-        commands.entity(parent).with_child(label_text("Stale selection", fonts));
+        commands
+            .entity(parent)
+            .with_child(label_text("Stale selection", fonts));
         return;
     };
 
-    let name_str = name.map(|n| n.to_string()).unwrap_or_else(|| "Object".to_string());
+    let name_str = name
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "Object".to_string());
     let id_str = format!("ID: {:?}", target);
 
     commands.entity(parent).with_children(|ui| {
@@ -47,7 +61,7 @@ pub fn render_object_inspector(
             .with_child(label_text("Move", fonts));
         }
 
-        if rotatable.is_some() {
+        if rotatable.is_some() && mode == ToolMode::Move {
             ui.spawn((
                 ui_button("Rotate", 120.0, 30.0),
                 InspectorActionButton {

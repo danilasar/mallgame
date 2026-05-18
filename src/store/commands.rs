@@ -39,6 +39,7 @@ pub struct MoveObjectCommand {
     pub object_id: StableObjectId,
     pub from: Vec2,
     pub to: Vec2,
+    pub rotation_index: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,60 +127,16 @@ pub fn apply_domain_commands(
     while let Some(command) = queue.commands.pop_front() {
         let result = match &command {
             DomainCommand::BuildObject(c) => apply_build_object(c, &mut commands, &asset_server, &world_bounds, &store, &set.p0()),
-            DomainCommand::MoveObject(c) => apply_move_object(c, &mut commands, &world_bounds, &store, &set.p0(), &lookup),
+            DomainCommand::MoveObject(c) => {
+                if let Some(&entity) = lookup.get(&c.object_id) {
+                    apply_move_object(c, entity, &mut commands, &mut set, &world_bounds, &store)
+                } else {
+                    DomainCommandResult::Rejected { reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id } }
+                }
+            }
             DomainCommand::RotateObject(c) => {
                 if let Some(&entity) = lookup.get(&c.object_id) {
-                    let (variant, world_pos) = {
-                        let q1 = set.p1();
-                        match q1.get(entity) {
-                            Ok((rotatable, _, _, _, _)) => {
-                                if c.to_rotation >= rotatable.variants.len() {
-                                    (None, Vec2::ZERO)
-                                } else {
-                                    let variant = rotatable.variants[c.to_rotation].clone();
-                                    let q0 = set.p0();
-                                    match q0.get(entity) {
-                                        Ok((_, pos, _, _)) => (Some(variant), pos.0),
-                                        Err(_) => (None, Vec2::ZERO),
-                                    }
-                                }
-                            }
-                            Err(_) => (None, Vec2::ZERO),
-                        }
-                    };
-
-                    if let Some(variant) = variant {
-                        let validation = crate::placement::validate_placement(
-                            &world_bounds,
-                            &store,
-                            &set.p0(),
-                            &variant.footprint,
-                            world_pos,
-                            crate::placement::PlacementValidationOptions {
-                                ignore_entity: Some(entity),
-                            },
-                        );
-
-                        if validation.is_err() {
-                            DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid }
-                        } else {
-                            let mut q1 = set.p1();
-                            if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) = q1.get_mut(entity) {
-                                rotatable.current = c.to_rotation;
-                                sprite.image = variant.sprite;
-                                *fp = variant.footprint;
-                                anchor.0 = variant.foot_anchor;
-                                offset.0 = variant.visual_offset;
-                                DomainCommandResult::Applied {
-                                    events: vec![crate::store::events::DomainEvent::ObjectRotated { id: c.object_id, from: c.from_rotation, to: c.to_rotation }],
-                                }
-                            } else {
-                                DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid }
-                            }
-                        }
-                    } else {
-                        DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid }
-                    }
+                    apply_rotate_object(c, entity, &mut set, &world_bounds, &store)
                 } else {
                     DomainCommandResult::Rejected { reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id } }
                 }
@@ -244,25 +201,29 @@ fn apply_build_object(
 
 fn apply_move_object(
     c: &MoveObjectCommand,
+    entity: Entity,
     commands: &mut Commands,
+    set: &mut ParamSet<(
+        Query<(Entity, &crate::objects::components::WorldPos, &crate::objects::components::Footprint, Option<&crate::objects::components::BlocksPlacement>)>,
+        Query<(&mut crate::objects::rotation::Rotatable, &mut Sprite, &mut crate::objects::components::Footprint, &mut crate::objects::components::FootAnchor, &mut crate::objects::components::VisualOffset), Without<crate::tools::ToolPreview>>,
+        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+    )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
-    footprints: &Query<(Entity, &crate::objects::components::WorldPos, &crate::objects::components::Footprint, Option<&crate::objects::components::BlocksPlacement>)>,
-    lookup: &std::collections::HashMap<StableObjectId, Entity>,
 ) -> DomainCommandResult {
-    let Some(&entity) = lookup.get(&c.object_id) else {
-        return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id } };
-    };
-
+    // 1. Get current footprint for validation
+    let footprints = set.p0();
     let Ok((_, _, footprint, _)) = footprints.get(entity) else {
         return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id } };
     };
+    let current_footprint = footprint.clone();
 
+    // 2. Revalidate position
     let validation = crate::placement::validate_placement(
         world_bounds,
         store,
-        footprints,
-        footprint,
+        &footprints,
+        &current_footprint,
         c.to,
         crate::placement::PlacementValidationOptions {
             ignore_entity: Some(entity),
@@ -273,12 +234,94 @@ fn apply_move_object(
         return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::PlacementInvalid };
     }
 
+    // 3. Apply changes (Pos + Rotation)
     if let Ok(mut e) = commands.get_entity(entity) {
         e.insert(crate::objects::components::WorldPos(c.to));
     }
 
+    if let Some(new_rotation) = c.rotation_index {
+        let mut rotatables = set.p1();
+        if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) = rotatables.get_mut(entity) {
+            if new_rotation < rotatable.variants.len() {
+                rotatable.current = new_rotation;
+                let variant = &rotatable.variants[new_rotation];
+                sprite.image = variant.sprite.clone();
+                *fp = variant.footprint.clone();
+                anchor.0 = variant.foot_anchor;
+                offset.0 = variant.visual_offset;
+            }
+        }
+    }
+
     DomainCommandResult::Applied {
         events: vec![crate::store::events::DomainEvent::ObjectMoved { id: c.object_id, from: c.from, to: c.to }],
+    }
+}
+
+fn apply_rotate_object(
+    c: &RotateObjectCommand,
+    entity: Entity,
+    set: &mut ParamSet<(
+        Query<(Entity, &crate::objects::components::WorldPos, &crate::objects::components::Footprint, Option<&crate::objects::components::BlocksPlacement>)>,
+        Query<(&mut crate::objects::rotation::Rotatable, &mut Sprite, &mut crate::objects::components::Footprint, &mut crate::objects::components::FootAnchor, &mut crate::objects::components::VisualOffset), Without<crate::tools::ToolPreview>>,
+        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+    )>,
+    world_bounds: &crate::store::WorldBounds,
+    store: &crate::store::area::StoreArea,
+) -> DomainCommandResult {
+    // 1. Get rotation variant and position
+    let (variant, world_pos) = {
+        let q1 = set.p1();
+        match q1.get(entity) {
+            Ok((rotatable, _, _, _, _)) => {
+                if c.to_rotation >= rotatable.variants.len() {
+                    return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid };
+                }
+                let variant = rotatable.variants[c.to_rotation].clone();
+                
+                let q0 = set.p0();
+                match q0.get(entity) {
+                    Ok((_, pos, _, _)) => (variant, pos.0),
+                    Err(_) => return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::ObjectMissing { id: c.object_id } },
+                }
+            }
+            Err(_) => return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid },
+        }
+    };
+
+    // 2. Validate rotated placement
+    let validation = {
+        let footprints = set.p0();
+        crate::placement::validate_placement(
+            world_bounds,
+            store,
+            &footprints,
+            &variant.footprint,
+            world_pos,
+            crate::placement::PlacementValidationOptions {
+                ignore_entity: Some(entity),
+            },
+        )
+    };
+
+    if let Err(_e) = validation {
+        return DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid };
+    }
+
+    // 3. Apply mutation
+    let mut q1 = set.p1();
+    if let Ok((mut rotatable, mut sprite, mut fp, mut anchor, mut offset)) = q1.get_mut(entity) {
+        rotatable.current = c.to_rotation;
+        sprite.image = variant.sprite;
+        *fp = variant.footprint;
+        anchor.0 = variant.foot_anchor;
+        offset.0 = variant.visual_offset;
+        
+        DomainCommandResult::Applied {
+            events: vec![crate::store::events::DomainEvent::ObjectRotated { id: c.object_id, from: c.from_rotation, to: c.to_rotation }],
+        }
+    } else {
+        DomainCommandResult::Rejected { reason: DomainCommandRejectReason::RotationInvalid }
     }
 }
 
