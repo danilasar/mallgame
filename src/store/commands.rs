@@ -362,3 +362,81 @@ fn apply_purchase_chunk(
         ],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::objects::components::InteractionRole;
+
+    fn setup_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(AssetPlugin::default());
+        app.init_resource::<DomainCommandQueue>();
+        app.add_message::<crate::store::events::DomainEvent>();
+        app.add_message::<DomainCommandRejected>();
+        app.init_resource::<crate::store::WorldBounds>();
+        app.insert_resource(crate::store::area::StoreArea::new(Vec2::ZERO));
+        app.insert_resource(crate::objects::components::StableObjectIdAllocator { next: 1000 });
+        app
+    }
+
+    #[test]
+    fn test_delete_object_command() {
+        let mut app = setup_test_app();
+        let object_id = StableObjectId(102);
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+
+        app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(object_id),
+            crate::objects::components::WorldPos(Vec2::ZERO),
+            crate::objects::components::StoreObject,
+        ));
+
+        app.world_mut().resource_mut::<DomainCommandQueue>().commands.push_back(
+            DomainCommand::DeleteObject(DeleteObjectCommand { object_id })
+        );
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query::<&crate::objects::components::ObjectStableId>();
+        let found = query.iter(world).any(|id| id.0 == object_id);
+        assert!(!found, "Object with ID 102 should have been deleted");
+    }
+
+    #[test]
+    fn test_rejection_on_collision() {
+        let mut app = setup_test_app();
+        let id1 = StableObjectId(201);
+        let id2 = StableObjectId(202);
+        let pos = Vec2::new(0.0, 0.0);
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+
+        app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(id1),
+            crate::objects::components::WorldPos(pos),
+            crate::objects::components::Footprint::rectangle(Vec2::splat(20.0)),
+            crate::objects::components::StoreObject,
+            crate::objects::components::BlocksPlacement,
+        ));
+
+        app.world_mut().resource_mut::<DomainCommandQueue>().commands.push_back(
+            DomainCommand::BuildObject(BuildObjectCommand {
+                object_id: id2,
+                prototype_id: BuildPrototypeId::Chair,
+                world_pos: pos,
+                rotation_index: Some(0),
+            })
+        );
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query::<&crate::objects::components::ObjectStableId>();
+        let found = query.iter(world).any(|id| id.0 == id2);
+        assert!(!found, "Object with ID 202 should NOT have been built due to collision");
+    }
+}
