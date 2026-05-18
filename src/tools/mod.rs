@@ -69,7 +69,10 @@ pub fn unified_tool_validation_system(
     world_bounds: Res<WorldBounds>,
     store_area: Res<StoreArea>,
     mut session: ResMut<ToolSessionState>,
-    footprints: Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
+    footprints: Query<
+        (Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>),
+        Without<WallMounted>,
+    >,
     mut previews: Query<(
         &mut PlacementPreview,
         &WorldPos,
@@ -82,34 +85,31 @@ pub fn unified_tool_validation_system(
     };
 
     match active {
-        ActiveToolSession::Build(build) => {
-            match build {
-                BuildToolSession::Floor(floor) => {
-                    if let Ok((mut preview, pos, Some(footprint), _)) =
-                        previews.get_mut(floor.preview_entity)
-                    {
-                        let result = crate::placement::validate_placement(
-                            &world_bounds,
-                            &store_area,
-                            &footprints,
-                            footprint,
-                            pos.0,
-                            crate::placement::PlacementValidationOptions::default(),
-                        );
-                        preview.validation = Some(result);
-                    }
-                }
-                BuildToolSession::WallMounted(wall) => {
-                    if let Ok((mut preview, _, _, Some(_))) = previews.get_mut(wall.preview_entity)
-                    {
-                        preview.validation = Some(match wall.current_attachment {
-                            Some(_) => Ok(()),
-                            None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
-                        });
-                    }
+        ActiveToolSession::Build(build) => match build {
+            BuildToolSession::Floor(floor) => {
+                if let Ok((mut preview, pos, Some(footprint), _)) =
+                    previews.get_mut(floor.preview_entity)
+                {
+                    let result = crate::placement::validate_placement(
+                        &world_bounds,
+                        &store_area,
+                        &footprints,
+                        footprint,
+                        pos.0,
+                        crate::placement::PlacementValidationOptions::default(),
+                    );
+                    preview.validation = Some(result);
                 }
             }
-        }
+            BuildToolSession::WallMounted(wall) => {
+                if let Ok((mut preview, _, _, Some(_))) = previews.get_mut(wall.preview_entity) {
+                    preview.validation = Some(match wall.current_attachment {
+                        Some(_) => Ok(()),
+                        None => Err(crate::store::PlacementInvalidReason::WallSurfaceMissing),
+                    });
+                }
+            }
+        },
         ActiveToolSession::Move(move_session) => {
             if let Ok((mut preview, pos, Some(footprint), _)) =
                 previews.get_mut(move_session.preview_entity)
@@ -202,17 +202,13 @@ pub fn cleanup_current_session(
 
     match active {
         ActiveToolSession::Build(s) => {
-            if let Ok(mut e) = commands.get_entity(s.preview_entity()) {
-                e.despawn();
-            }
+            commands.entity(s.preview_entity()).try_despawn();
         }
         ActiveToolSession::Move(s) => {
-            if let Ok(mut e) = commands.get_entity(s.preview_entity) {
-                e.despawn();
-            }
-            if let Ok(mut e) = commands.get_entity(s.source_entity) {
-                e.remove::<PreviewSource>();
-            }
+            commands.entity(s.preview_entity).try_despawn();
+            commands
+                .entity(s.source_entity)
+                .try_remove::<PreviewSource>();
         }
         ActiveToolSession::Expansion(_) => {}
     }
@@ -257,6 +253,13 @@ pub fn handle_object_action_requests(mut params: ObjectActionRequestParams) {
                 }
             }
             ObjectActionKind::Move => {
+                if params.wall_mounted.get(request.entity).is_ok() {
+                    warn!(
+                        "Move action ignored for wall-mounted object {:?}; wall-mounted move is not implemented yet",
+                        request.entity
+                    );
+                    continue;
+                }
                 // Ensure tool is active
                 params.tool_activation.write(ActivateToolRequested {
                     mode: ToolMode::Move,
@@ -295,6 +298,7 @@ pub(crate) struct ObjectActionRequestParams<'w, 's> {
     requests: MessageReader<'w, 's, ObjectActionRequested>,
     mode: Res<'w, State<ToolMode>>,
     selection: ResMut<'w, SelectionState>,
+    wall_mounted: Query<'w, 's, (), With<WallMounted>>,
     move_requests: MessageWriter<'w, StartMoveObjectRequested>,
     rotate_requests: MessageWriter<'w, RotateObjectRequested>,
     modal_requests: MessageWriter<'w, crate::ui::ModalRequest>,
@@ -316,8 +320,7 @@ pub struct DeleteObjectRequested {
 #[derive(Message, Debug, Clone)]
 pub struct BuildObjectRequested {
     pub prototype: BuildObjectId,
-    pub pos: Vec2,
-    pub rotation: usize,
+    pub placement: crate::objects::components::ObjectPlacement,
 }
 
 #[derive(Message, Debug, Clone, Copy)]
@@ -371,8 +374,7 @@ pub fn convert_committed_requests_to_commands(
             .push_back(DomainCommand::BuildObject(BuildObjectCommand {
                 object_id: stable_id,
                 prototype_id: build.prototype.clone(),
-                world_pos: build.pos,
-                rotation_index: Some(build.rotation),
+                placement: build.placement,
             }));
     }
 }

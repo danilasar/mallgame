@@ -146,6 +146,7 @@ struct RenderActiveInterfacePanelParams<'w, 's> {
         (
             Option<&'static Name>,
             Option<&'static Movable>,
+            Option<&'static crate::objects::components::ObjectPlacementComponent>,
             Option<&'static Rotatable>,
             Option<&'static Deletable>,
         ),

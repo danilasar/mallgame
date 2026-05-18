@@ -67,8 +67,7 @@ struct QuickSaveParams<'w, 's> {
         (
             &'static crate::objects::components::ObjectStableId,
             &'static crate::objects::components::ObjectPrototypeId,
-            &'static crate::objects::components::WorldPos,
-            Option<&'static crate::objects::rotation::Rotatable>,
+            &'static crate::objects::components::ObjectPlacementComponent,
         ),
         (With<StoreObject>, Without<crate::tools::ToolPreview>),
     >,

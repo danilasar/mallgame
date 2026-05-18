@@ -89,7 +89,7 @@ Gameplay mutation authority:
 
 ## Authority Save Model
 
-- `SaveGame` persists gameplay truth only: store chunks, real objects, stable IDs, prototype IDs, and positions.
+- `SaveGame` persists gameplay truth only: store chunks, real objects, stable IDs, prototype IDs, and object placement authority.
 - Transient runtime state (sessions, previews, widgets, selection, modal stack) is NOT saved.
 - Load pipeline is transactional: validation occurs before clearing the current world.
 - Runtime state is fully reset during load to ensure consistency.
@@ -101,7 +101,7 @@ Gameplay mutation authority:
 - The active build selection surface is the Ribbon; build-panel terminology is obsolete in the current codebase.
 - Stage 5A catalog is already componentized: `ObjectPrototype` carries `display`, `catalog`, `placement`, `visuals`, `rotation`, `capabilities`, and `initial_state`.
 - `ObjectCatalogSpec` is the Ribbon-facing metadata layer: `category`, `ribbon_tab`, `ribbon_group`, `sort_order`, and `availability`.
-- Stage 5A capabilities currently map to typed ECS components: `ProductContainer`, `CheckoutPoint`, `Decor`, and `NpcInteractionPoints`.
+- Stage 5A/5B capabilities currently map to typed ECS components: `ProductContainer`, `CheckoutPoint`, `Decor`, `NpcInteractionPoints`, `WallMounted`, and `Window`.
 - `NpcInteractionPoints` is a placeholder affordance layer for future NPCs, not NPC logic.
 - Current sample prototypes are `fixture.shelf.basic`, `service.checkout.basic`, and `decor.plant.tree`, with save/load compatibility aliases `chair`, `table`, and `tree`.
 - Catalog validation checks for non-empty display names and capability/interaction-point invariants:
@@ -111,8 +111,11 @@ Gameplay mutation authority:
 - Store walls are derived from the outer top-right owned chunk of `StoreArea + expansion policy`, extend along the top row and right column while the run remains contiguous, are not save authority, and are synced through a `WallVisualCache`.
 - Wall entities carry `StoreWallSegment` and `WallSurface` metadata; `WallSurface` stores `start/end`, length, thickness, height, and normal for future wall tools.
 - `PointerTargets` now has dedicated `wall_surface` and `exterior` slots for safe picking separation.
-- Stage 5B.2 adds `PlacementKind::WallMounted` as a preview-only branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`, but do not yet spawn real wall-mounted objects or domain commands.
-- The Ribbon now exposes a `Walls` tab for the wall-mounted dev prototype, and the startup scene also spawns one real `StoreObject` instance of the wall prototype for Move/Delete smoke testing.
+- Stage 5B.2 added `PlacementKind::WallMounted` as a preview branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`.
+- Stage 5B.3 makes wall-mounted placement buildable for the MVP wall decor/window prototypes. `BuildObjectRequested` and `DomainCommand::BuildObject` carry `ObjectPlacement`, and wall-mounted objects are spawned as real `StoreObject` entities with `WallMounted` attachment data.
+- Stage 5B.3.1 hardens wall-mounted geometry: wall-mounted objects use `WallMountedBounds`, do not receive floor `Footprint`, do not receive `BlocksPlacement`, and are not `Movable`.
+- `wall.window.basic_visual` is visual-only: it uses `Window { glass_alpha }` for presentation semantics and does not create wall cutouts, collision changes, or navigation portals.
+- The Ribbon exposes a `Walls` tab for the wall-mounted prototype. Wall-mounted objects are saved and loaded through `ObjectPlacement::WallMounted`; wall visuals and wall surfaces remain derived and unsaved.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
 - Domain mutations are unified behind the `DomainCommand` system.
@@ -127,7 +130,8 @@ Gameplay mutation authority:
 - Save/load is covered by an authority-restoration test.
 - The overlay/highlight refactor is covered by unit tests for dirty entity collection, sprite color mapping, and available expansion chunk selection.
 - Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
-- Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and the new wall-distance picking helper. Exterior content is still just a component/target foundation.
+- Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
+- Stage 5B.3 is covered by a domain test that builds a wall-mounted `StoreObject` without floor blocker/move components.
 
 ## Store Rules
 
@@ -144,4 +148,4 @@ Gameplay mutation authority:
 - Economy system and currency-based validation in commands.
 - Save migrations and multiple slots.
 - Further decomposition of `DomainCommand` apply paths if new gameplay commands add more branching.
-- Stage 5B.1 wall/exterior foundation and Stage 5B.2 wall-mounted preview integration.
+- Wall-mounted move, doors, wall cutouts, navigation portals, and exterior editing tools.

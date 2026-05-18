@@ -46,6 +46,43 @@ pub struct WallAttachmentPoint {
     pub height_on_wall: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ObjectPlacement {
+    Floor {
+        world_pos: Vec2,
+        rotation_index: Option<usize>,
+    },
+    WallMounted {
+        attachment: WallAttachmentPoint,
+    },
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct ObjectPlacementComponent {
+    pub placement: ObjectPlacement,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallMounted {
+    pub attachment: WallAttachmentPoint,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallMountedBounds {
+    pub segment_key: WallSegmentKey,
+    pub offset_min: f32,
+    pub offset_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallWindow {
+    pub glass_alpha: f32,
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortLayer {
     Floor,

@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 
 use crate::objects::components::{
-    Footprint, InteractionRole, Movable, RuntimeOwned, RuntimeOwner, SortLayer, WorldPos,
+    Footprint, InteractionRole, Movable, RuntimeOwned, RuntimeOwner, SortLayer, WallMounted,
+    WorldPos,
 };
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
@@ -33,7 +34,7 @@ pub fn update_footprint_outline_overlay(
     session: Res<crate::tools::ToolSessionState>,
     tool: Res<crate::tools::ToolContext>,
     projection: Res<IsoProjection>,
-    objects: Query<(&WorldPos, &Footprint, Option<&Movable>)>,
+    objects: Query<(&WorldPos, &Footprint, Option<&Movable>), Without<WallMounted>>,
     mut overlays: Query<
         (
             Entity,

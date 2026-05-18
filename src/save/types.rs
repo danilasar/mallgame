@@ -1,6 +1,6 @@
 use crate::objects::components::StableObjectId;
 use crate::objects::prototypes::BuildObjectId;
-use crate::store::{StoreChunkCoord, StoreChunkKind};
+use crate::store::{StoreBoundarySide, StoreChunkCoord, StoreChunkKind};
 use serde::{Deserialize, Serialize};
 
 pub type SaveVersion = u32;
@@ -29,12 +29,30 @@ pub struct StoreChunkSave {
 pub struct ObjectSave {
     pub id: StableObjectId,
     pub prototype_id: BuildObjectId,
-    pub world_pos: WorldPosSave,
-    pub rotation_index: Option<usize>,
+    pub placement: ObjectPlacementSave,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WorldPosSave {
     pub x: f32,
     pub y: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ObjectPlacementSave {
+    Floor {
+        world_pos: WorldPosSave,
+        rotation_index: Option<usize>,
+    },
+    WallMounted {
+        segment_key: WallSegmentKeySave,
+        offset_along_segment: f32,
+        height_on_wall: f32,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WallSegmentKeySave {
+    pub chunk: StoreChunkCoord,
+    pub side: StoreBoundarySide,
 }

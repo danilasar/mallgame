@@ -79,11 +79,15 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
     );
 
     for entity in &dirty {
-        params.commands.entity(*entity).remove::<HighlightIntent>();
+        if let Ok(mut entity_commands) = params.commands.get_entity(*entity) {
+            entity_commands.remove::<HighlightIntent>();
+        }
     }
 
-    if let Some(selected) = current_selected.filter(|entity| Some(*entity) != current_move_source) {
-        params.commands.entity(selected).insert(HighlightIntent {
+    if let Some(selected) = current_selected.filter(|entity| Some(*entity) != current_move_source)
+        && let Ok(mut entity_commands) = params.commands.get_entity(selected)
+    {
+        entity_commands.insert(HighlightIntent {
             kind: HighlightKind::Selected,
         });
     }
@@ -121,11 +125,10 @@ pub fn update_highlight_intents(mut params: HighlightIntentParams) {
             _ => Some(HighlightKind::Hover),
         };
 
-        if let Some(kind) = kind {
-            params
-                .commands
-                .entity(hovered)
-                .insert(HighlightIntent { kind });
+        if let Some(kind) = kind
+            && let Ok(mut entity_commands) = params.commands.get_entity(hovered)
+        {
+            entity_commands.insert(HighlightIntent { kind });
         }
     }
 

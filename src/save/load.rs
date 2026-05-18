@@ -1,12 +1,14 @@
 use crate::input::{PointerDragState, PointerTargets};
-use crate::objects::components::{StableObjectIdAllocator, StoreObject};
+use crate::objects::components::{
+    ObjectPlacement, StableObjectIdAllocator, StoreObject, WallAttachmentPoint,
+};
 use crate::objects::prototypes::{
     BuildRibbonTab, BuildSelectionState, ObjectCatalog, SpawnStoreObjectParams,
     spawn_store_object_from_prototype,
 };
 use crate::save::types::*;
 use crate::save::validation::*;
-use crate::store::{StoreArea, StoreChunkData, WorldBounds};
+use crate::store::{StoreArea, StoreChunkData, WallSegmentKey, WorldBounds};
 use crate::tools::{
     PrimaryPointerCycle, ToolInputGate, ToolMode, ToolReturnState, ToolSessionState,
 };
@@ -66,13 +68,31 @@ pub fn build_load_plan(
         }
         max_loaded_id = max_loaded_id.max(obj.id.0);
 
-        if !obj.world_pos.x.is_finite() || !obj.world_pos.y.is_finite() {
-            issues.push(LoadIssue::NonFiniteWorldPos { object_id: obj.id });
-            object_plans.push(ObjectLoadPlan::Skip {
-                id: obj.id,
-                reason: LoadIssue::NonFiniteWorldPos { object_id: obj.id },
-            });
-            continue;
+        match &obj.placement {
+            ObjectPlacementSave::Floor { world_pos, .. } => {
+                if !world_pos.x.is_finite() || !world_pos.y.is_finite() {
+                    issues.push(LoadIssue::NonFiniteWorldPos { object_id: obj.id });
+                    object_plans.push(ObjectLoadPlan::Skip {
+                        id: obj.id,
+                        reason: LoadIssue::NonFiniteWorldPos { object_id: obj.id },
+                    });
+                    continue;
+                }
+            }
+            ObjectPlacementSave::WallMounted {
+                offset_along_segment,
+                height_on_wall,
+                ..
+            } => {
+                if !offset_along_segment.is_finite() || !height_on_wall.is_finite() {
+                    issues.push(LoadIssue::ObjectPlacementInvalid { object_id: obj.id });
+                    object_plans.push(ObjectLoadPlan::Skip {
+                        id: obj.id,
+                        reason: LoadIssue::ObjectPlacementInvalid { object_id: obj.id },
+                    });
+                    continue;
+                }
+            }
         }
 
         object_plans.push(ObjectLoadPlan::Spawn(obj.clone()));
@@ -186,8 +206,7 @@ pub fn apply_load_plan(
                 SpawnStoreObjectParams {
                     stable_id: obj.id,
                     prototype_id: obj.prototype_id.clone(),
-                    world_pos: Vec2::new(obj.world_pos.x, obj.world_pos.y),
-                    rotation_index: obj.rotation_index,
+                    placement: placement_from_save(&obj.placement),
                 },
             )
         {
@@ -201,6 +220,32 @@ pub fn apply_load_plan(
     let mut report = plan.report;
     report.loaded_objects = loaded_count;
     report
+}
+
+fn placement_from_save(save: &ObjectPlacementSave) -> ObjectPlacement {
+    match save {
+        ObjectPlacementSave::Floor {
+            world_pos,
+            rotation_index,
+        } => ObjectPlacement::Floor {
+            world_pos: Vec2::new(world_pos.x, world_pos.y),
+            rotation_index: *rotation_index,
+        },
+        ObjectPlacementSave::WallMounted {
+            segment_key,
+            offset_along_segment,
+            height_on_wall,
+        } => ObjectPlacement::WallMounted {
+            attachment: WallAttachmentPoint {
+                segment_key: WallSegmentKey {
+                    chunk: segment_key.chunk,
+                    side: segment_key.side,
+                },
+                offset_along_segment: *offset_along_segment,
+                height_on_wall: *height_on_wall,
+            },
+        },
+    }
 }
 
 #[cfg(test)]
@@ -233,8 +278,10 @@ mod tests {
             objects: vec![ObjectSave {
                 id: StableObjectId(1001),
                 prototype_id: BuildObjectId::new("fixture.shelf.basic"),
-                world_pos: WorldPosSave { x: 0.0, y: 0.0 },
-                rotation_index: None,
+                placement: ObjectPlacementSave::Floor {
+                    world_pos: WorldPosSave { x: 0.0, y: 0.0 },
+                    rotation_index: None,
+                },
             }],
         };
 
@@ -284,6 +331,100 @@ mod tests {
         assert!(
             found,
             "Loaded object should have sid 1001 and all capability components"
+        );
+    }
+
+    #[test]
+    fn test_save_load_restores_wall_mounted_object() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(AssetPlugin::default());
+        app.init_asset::<Image>();
+        crate::store::commands::register_test_messages(&mut app);
+
+        let commands = app.world_mut().commands();
+        crate::objects::prototypes::setup_object_catalog(commands);
+        app.update();
+
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: crate::store::StoreChunkCoord { x: -1, y: -1 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+        let save = SaveGame {
+            version: CURRENT_SAVE_VERSION,
+            next_object_id: 2000,
+            store: StoreSave {
+                owned_chunks: vec![],
+            },
+            objects: vec![ObjectSave {
+                id: StableObjectId(3001),
+                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
+                placement: ObjectPlacementSave::WallMounted {
+                    segment_key: WallSegmentKeySave {
+                        chunk: segment_key.chunk,
+                        side: segment_key.side,
+                    },
+                    offset_along_segment: 64.0,
+                    height_on_wall: 48.0,
+                },
+            }],
+        };
+
+        let plan =
+            build_load_plan(save, &SaveLoadLimits::default(), &WorldBounds::default()).unwrap();
+
+        app.insert_resource(StoreArea::new(Vec2::ZERO));
+        app.insert_resource(StableObjectIdAllocator { next: 1 });
+        app.world_mut().insert_resource(plan);
+        app.add_systems(
+            Update,
+            |mut commands: Commands,
+             asset_server: Res<AssetServer>,
+             mut store: ResMut<StoreArea>,
+             mut allocator: ResMut<StableObjectIdAllocator>,
+             catalog: Res<ObjectCatalog>,
+             query: Query<Entity, With<StoreObject>>,
+             plan_res: Res<LoadPlan>| {
+                apply_load_plan(
+                    &mut commands,
+                    &asset_server,
+                    &mut store,
+                    &mut allocator,
+                    &catalog,
+                    &query,
+                    plan_res.clone(),
+                );
+            },
+        );
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query::<(
+            &ObjectStableId,
+            &WallMounted,
+            &WallMountedBounds,
+            &ObjectPlacementComponent,
+            Option<&Footprint>,
+            &StoreObject,
+        )>();
+        let found = query.iter(world).any(
+            |(sid, mounted, bounds, placement, footprint, _store_object)| {
+                sid.0 == StableObjectId(3001)
+                    && mounted.attachment.segment_key == segment_key
+                    && bounds.segment_key == segment_key
+                    && footprint.is_none()
+                    && matches!(
+                        placement.placement,
+                        ObjectPlacement::WallMounted { attachment }
+                            if attachment.segment_key == segment_key
+                    )
+            },
+        );
+
+        assert!(
+            found,
+            "wall-mounted object should restore from save placement"
         );
     }
 }

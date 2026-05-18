@@ -12,7 +12,10 @@ pub struct PlacementValidationOptions {
 pub fn validate_placement(
     world_bounds: &WorldBounds,
     store_area: &StoreArea,
-    footprints: &Query<(Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>)>,
+    footprints: &Query<
+        (Entity, &WorldPos, &Footprint, Option<&BlocksPlacement>),
+        Without<WallMounted>,
+    >,
     active_footprint: &Footprint,
     candidate_pos: Vec2,
     options: PlacementValidationOptions,

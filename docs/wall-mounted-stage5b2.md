@@ -3,6 +3,8 @@
 Stage 5B.2 integrates wall surfaces into `BuildTool` as a preview-only placement strategy.
 It does not create real wall-mounted objects yet.
 
+Status: superseded by [wall-mounted-stage5b3.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b3.md). This document remains as historical notes for the preview-only slice.
+
 ## Scope
 
 - `PlacementKind` supports `Floor` and `WallMounted`

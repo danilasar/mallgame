@@ -41,7 +41,7 @@ This is not gameplay truth. It only drives how prototypes appear in the Ribbon.
 
 ## PlacementSpec
 
-Placement is still floor-based in Stage 5A:
+Stage 5A started floor-only placement:
 
 - `kind: PlacementKind::Floor`
 - `footprint_half_extents: Vec2`
@@ -49,6 +49,8 @@ Placement is still floor-based in Stage 5A:
 - `navigation_blocker: bool`
 
 `placement_blocker` becomes the `BlocksPlacement` ECS component on the spawned entity.
+
+Stage 5B.3 extends this with `PlacementKind::WallMounted` for the wall-mounted MVP. Wall-mounted prototypes still live in the same catalog, but their real placement authority is `ObjectPlacement::WallMounted`, not floor `WorldPos`.
 
 ## VisualSpec
 
@@ -79,6 +81,8 @@ Stage 5A capabilities are mapped into typed ECS components on spawn:
 - `CheckoutPoint(CheckoutPointSpec)`
 - `Decor(DecorSpec)`
 - `NpcInteractionPoints(NpcInteractionPointsSpec)`
+- `WallMounted(WallMountedSpec)`
+- `Window(WindowSpec)`
 
 ### ProductContainer
 
@@ -115,6 +119,29 @@ Spawns a runtime `NpcInteractionPoints` component containing a list of points:
 
 This is a placeholder affordance layer for future NPC behavior. It is not NPC simulation.
 
+### WallMounted
+
+Spawns a runtime `WallMounted` component for `PlacementKind::WallMounted` prototypes.
+
+The spec contains:
+
+- `width`
+- `height`
+- `allowed_sides`
+- `default_height_on_wall`
+
+This is the capability behind wall decor/poster-style objects. It does not imply doors, wall cutouts, navigation portals, or window transparency.
+
+### Window
+
+Spawns a runtime `WallWindow` component with:
+
+- `width`
+- `height`
+- `glass_alpha`
+
+This is visual-only window semantics. It does not cut wall geometry, affect collision, or create navigation portals.
+
 ## Current Sample Prototypes
 
 The startup catalog currently defines:
@@ -122,6 +149,8 @@ The startup catalog currently defines:
 - `fixture.shelf.basic`
 - `service.checkout.basic`
 - `decor.plant.tree`
+- `wall.decor.placeholder`
+- `wall.window.basic_visual`
 
 For save/load compatibility, there are alias entries:
 
@@ -143,9 +172,10 @@ The validation result is logged at startup. There is also a unit test for the mi
 
 The factory currently turns prototype data into runtime ECS components:
 
-- `PlacementSpec` → `Footprint` and optional `BlocksPlacement`
+- `PlacementSpec` → floor `Footprint` and optional `BlocksPlacement` for floor objects only
+- `WallMountedSpec` → `WallMounted` and `WallMountedBounds` for wall-mounted objects
 - `VisualSpec` → `Sprite`, `WorldPos`, `FootAnchor`, `VisualOffset`, `SortLayer`, `SortBias`
-- `ObjectCapabilitySpec` → `ProductContainer`, `CheckoutPoint`, `Decor`, `NpcInteractionPoints`
+- `ObjectCapabilitySpec` → `ProductContainer`, `CheckoutPoint`, `Decor`, `NpcInteractionPoints`, `WallMounted`, `Window`
 - `ObjectPrototype.id` → `ObjectPrototypeId`
 - `VisualSpec.asset_id` → entity `Name`
 
@@ -154,4 +184,3 @@ The factory currently turns prototype data into runtime ECS components:
 - Ribbon metadata is stage 5A UI metadata, not gameplay truth.
 - Capability components are what runtime systems should query.
 - The catalog is still intentionally small; the shape is what matters, not the number of sample objects.
-

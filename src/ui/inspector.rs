@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::objects::components::{Deletable, Movable};
+use crate::objects::components::{Deletable, Movable, ObjectPlacementComponent};
 use crate::objects::rotation::Rotatable;
 use crate::tools::{
     ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, SelectionState, ToolMode,
@@ -24,6 +24,7 @@ pub fn render_object_inspector(
     objects: Query<(
         Option<&Name>,
         Option<&Movable>,
+        Option<&ObjectPlacementComponent>,
         Option<&Rotatable>,
         Option<&Deletable>,
     )>,
@@ -35,7 +36,7 @@ pub fn render_object_inspector(
         return;
     };
 
-    let Ok((name, movable, rotatable, deletable)) = objects.get(target) else {
+    let Ok((name, movable, placement, rotatable, deletable)) = objects.get(target) else {
         commands
             .entity(parent)
             .with_child(label_text("Stale selection", fonts));
@@ -50,6 +51,30 @@ pub fn render_object_inspector(
     commands.entity(parent).with_children(|ui| {
         ui.spawn(label_text(name_str, fonts));
         ui.spawn(label_text(id_str, fonts));
+        if let Some(placement) = placement {
+            match placement.placement {
+                crate::objects::components::ObjectPlacement::Floor { .. } => {
+                    ui.spawn(label_text("Placement: Floor", fonts));
+                }
+                crate::objects::components::ObjectPlacement::WallMounted { attachment } => {
+                    ui.spawn(label_text("Placement: Wall-mounted", fonts));
+                    ui.spawn(label_text(
+                        format!(
+                            "Wall: {:?} {:?}",
+                            attachment.segment_key.side, attachment.segment_key.chunk
+                        ),
+                        fonts,
+                    ));
+                    ui.spawn(label_text(
+                        format!(
+                            "Offset {:.1}, height {:.1}",
+                            attachment.offset_along_segment, attachment.height_on_wall
+                        ),
+                        fonts,
+                    ));
+                }
+            }
+        }
 
         if movable.is_some() {
             ui.spawn((

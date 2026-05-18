@@ -1,25 +1,25 @@
-use bevy::ecs::system::SystemParam;
 use bevy::asset::RenderAssetUsages;
-use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::mesh::Indices;
+use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::objects::components::{
-    Interactive, InteractionRole, RuntimeOwned, RuntimeOwner, SortLayer,
+    InteractionRole, Interactive, RuntimeOwned, RuntimeOwner, SortLayer, VisualOffset, WallMounted,
+    WorldPos,
 };
 use crate::presentation::{IsoProjection, world_to_iso};
-use crate::store::{
-    StoreArea, StoreChunkCoord, StoreExpansionPolicy, WorldBounds,
-};
+use crate::store::{StoreArea, StoreChunkCoord, StoreExpansionPolicy, WorldBounds};
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StoreBoundarySide {
     Top = 0,
     Right = 1,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WallSegmentKey {
     pub chunk: StoreChunkCoord,
     pub side: StoreBoundarySide,
@@ -67,8 +67,12 @@ pub struct StoreBoundaryPlugin;
 
 impl Plugin for StoreBoundaryPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WallVisualCache>()
-            .add_systems(Update, sync_store_boundaries.in_set(crate::store::commands::DomainCommandSet::PostDomainApply));
+        app.init_resource::<WallVisualCache>().add_systems(
+            Update,
+            (sync_store_boundaries, sync_wall_mounted_object_positions)
+                .chain()
+                .in_set(crate::store::commands::DomainCommandSet::PostDomainApply),
+        );
     }
 }
 
@@ -82,6 +86,47 @@ struct StoreBoundaryParams<'w, 's> {
     cache: ResMut<'w, WallVisualCache>,
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<ColorMaterial>>,
+}
+
+pub fn wall_surface_visual_offset(
+    surface: &WallSurface,
+    projection: IsoProjection,
+    height_on_wall: f32,
+) -> Vec2 {
+    let projected_start = world_to_iso(surface.start, projection);
+    let projected_end = world_to_iso(surface.end, projection);
+    let segment = projected_end - projected_start;
+    if segment.length_squared() <= f32::EPSILON {
+        return Vec2::ZERO;
+    }
+
+    let wall_direction = segment.normalize();
+    let wall_normal = Vec2::new(-wall_direction.y, wall_direction.x);
+    wall_normal * surface.thickness + Vec2::new(0.0, height_on_wall.clamp(0.0, surface.height))
+}
+
+pub fn wall_surface_world_pos(surface: &WallSurface, offset_along_segment: f32) -> Vec2 {
+    let t = (offset_along_segment / surface.length.max(f32::EPSILON)).clamp(0.0, 1.0);
+    surface.start.lerp(surface.end, t)
+}
+
+fn sync_wall_mounted_object_positions(
+    projection: Res<IsoProjection>,
+    surfaces: Query<&WallSurface>,
+    mut mounted: Query<(&WallMounted, &mut WorldPos, &mut VisualOffset)>,
+) {
+    for (mounted, mut world_pos, mut visual_offset) in &mut mounted {
+        let Some(surface) = surfaces
+            .iter()
+            .find(|surface| surface.key == mounted.attachment.segment_key)
+        else {
+            continue;
+        };
+
+        world_pos.0 = wall_surface_world_pos(surface, mounted.attachment.offset_along_segment);
+        visual_offset.0 =
+            wall_surface_visual_offset(surface, *projection, mounted.attachment.height_on_wall);
+    }
 }
 
 fn sync_store_boundaries(mut params: StoreBoundaryParams) {
@@ -104,10 +149,17 @@ pub fn clear_wall_cache(cache: &mut WallVisualCache) {
     cache.initialized = false;
 }
 
-pub fn collect_boundary_segments(store: &StoreArea, world: &WorldBounds) -> Vec<StoreBoundarySegment> {
+pub fn collect_boundary_segments(
+    store: &StoreArea,
+    world: &WorldBounds,
+) -> Vec<StoreBoundarySegment> {
     let mut segments = Vec::new();
     segments.extend(boundary_line_segments(store, world, StoreBoundarySide::Top));
-    segments.extend(boundary_line_segments(store, world, StoreBoundarySide::Right));
+    segments.extend(boundary_line_segments(
+        store,
+        world,
+        StoreBoundarySide::Right,
+    ));
     segments.sort_by_key(|segment| boundary_sort_key(segment.key));
     segments
 }
@@ -218,7 +270,7 @@ fn sync_wall_cache(
 
     for key in stale_keys {
         if let Some(entity) = cache.entities_by_key.remove(&key) {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     }
 
@@ -321,8 +373,16 @@ mod tests {
         let segments = collect_boundary_segments(&store, &world);
 
         assert_eq!(segments.len(), 9);
-        assert!(segments.iter().any(|segment| segment.key.side == StoreBoundarySide::Top));
-        assert!(segments.iter().any(|segment| segment.key.side == StoreBoundarySide::Right));
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.key.side == StoreBoundarySide::Top)
+        );
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.key.side == StoreBoundarySide::Right)
+        );
 
         let chunk_size = store.chunk_world_size();
         for segment in segments {

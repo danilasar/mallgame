@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
-use crate::input::{point_in_convex_quad, InputAction, InputActionState, PointerContext, PointerTargets};
+use crate::input::{
+    InputAction, InputActionState, PointerContext, PointerTargets, point_in_convex_quad,
+};
 use crate::objects::components::{
     InteractionRole, RuntimeOwned, RuntimeOwner, VisualOffset, WallAttachmentPoint, WorldPos,
 };
@@ -8,8 +10,8 @@ use crate::objects::prototypes::{
     BuildSelectionState, ObjectCatalog, PlacementKind, SelectBuildPrototypeRequested,
     spawn_ghost_from_prototype, spawn_wall_mounted_preview,
 };
-use crate::presentation::{iso_to_world, IsoProjection};
-use crate::store::WallSurface;
+use crate::presentation::IsoProjection;
+use crate::store::{WallSurface, wall_surface_visual_offset, wall_surface_world_pos};
 use crate::tools::{
     ActivateToolRequested, ActiveToolSession, BuildObjectRequested, BuildToolSession,
     FloorBuildSession, NonInteractive, PlacementPreview, ToolActivationKind, ToolContext,
@@ -234,8 +236,10 @@ pub fn build_tool_system(mut params: BuildToolParams) {
                 if params.gate.primary_world_click_released && !floor.awaiting_fresh_click {
                     params.builds.write(BuildObjectRequested {
                         prototype: floor.prototype_id.clone(),
-                        pos: params.pointer.world_pos,
-                        rotation: floor.rotation_index,
+                        placement: crate::objects::components::ObjectPlacement::Floor {
+                            world_pos: params.pointer.world_pos,
+                            rotation_index: Some(floor.rotation_index),
+                        },
                     });
                 }
             }
@@ -259,32 +263,36 @@ pub fn build_tool_system(mut params: BuildToolParams) {
                     preview_size.x * 0.5,
                 );
 
-                wall.current_attachment = attachment.map(|(attachment, _)| attachment);
+                wall.current_attachment = attachment.map(|(attachment, _, _)| attachment);
 
                 if let Ok((mut world_pos, mut visual_offset, mut visibility, mut preview)) =
                     params.wall_previews.get_mut(wall.preview_entity)
                 {
-                    if let Some((_, hit_world_pos)) = attachment {
-                        world_pos.0 = hit_world_pos;
-                        visual_offset.0 = Vec2::ZERO;
+                    if let Some((_, base_world_pos, offset)) = attachment {
+                        world_pos.0 = base_world_pos;
+                        visual_offset.0 = offset;
                         *visibility = Visibility::Visible;
                         preview.validation = Some(Ok(()));
                     } else {
                         world_pos.0 = params.pointer.world_pos;
                         visual_offset.0 = Vec2::ZERO;
                         *visibility = Visibility::Visible;
-                        preview.validation = Some(Err(crate::store::PlacementInvalidReason::WallSurfaceMissing));
+                        preview.validation = Some(Err(
+                            crate::store::PlacementInvalidReason::WallSurfaceMissing,
+                        ));
                     }
                 }
 
                 if params.gate.primary_world_click_released
                     && !wall.awaiting_fresh_click
-                    && wall.current_attachment.is_some()
+                    && let Some(attachment) = wall.current_attachment
                 {
-                    info!(
-                        "Wall-mounted preview clicked on wall in Stage 5B.2 for prototype {:?}",
-                        wall.prototype_id
-                    );
+                    params.builds.write(BuildObjectRequested {
+                        prototype: wall.prototype_id.clone(),
+                        placement: crate::objects::components::ObjectPlacement::WallMounted {
+                            attachment,
+                        },
+                    });
                 }
             }
         }
@@ -327,7 +335,9 @@ pub fn wall_attachment_from_hit(
     wall_height: f32,
 ) -> WallAttachmentPoint {
     let max_offset = (wall_length - preview_half_width).max(preview_half_width);
-    let offset_along_segment = hit.offset_along_segment.clamp(preview_half_width, max_offset);
+    let offset_along_segment = hit
+        .offset_along_segment
+        .clamp(preview_half_width, max_offset);
     let height_on_wall = hit.height_on_wall.clamp(0.0, wall_height);
 
     WallAttachmentPoint {
@@ -342,8 +352,8 @@ fn find_wall_attachment_candidate(
     projection: IsoProjection,
     wall_surfaces: &Query<(Entity, &WallSurface)>,
     preview_half_width: f32,
-) -> Option<(WallAttachmentPoint, Vec2)> {
-    let mut best: Option<(f32, WallAttachmentPoint, Vec2)> = None;
+) -> Option<(WallAttachmentPoint, Vec2, Vec2)> {
+    let mut best: Option<(f32, WallAttachmentPoint, Vec2, Vec2)> = None;
 
     for (_entity, surface) in wall_surfaces.iter() {
         let projected_start = crate::presentation::world_to_iso(surface.start, projection);
@@ -366,8 +376,9 @@ fn find_wall_attachment_candidate(
 
         let relative = projected_pos - projected_start;
         let along = relative.dot(wall_direction).clamp(0.0, segment_length);
-        let closest_on_line = projected_start + wall_direction * along;
-        let distance_to_line = projected_pos.distance(closest_on_line);
+        let base_projected = projected_start + wall_direction * along;
+        let surface_base_projected = base_projected + thickness_offset;
+        let distance_to_line = projected_pos.distance(base_projected);
         let inside_quad = point_in_convex_quad(projected_pos, quad);
         let acceptance = if inside_quad {
             distance_to_line
@@ -381,31 +392,32 @@ fn find_wall_attachment_candidate(
 
         let t = (along / segment_length).clamp(0.0, 1.0);
         let offset_along_segment = (surface.length * t).clamp(preview_half_width, surface.length);
-        let height_on_wall = projected_pos.y - projected_start.y;
-        let projected_face = projected_start
-            + wall_direction * along
-            + wall_normal * surface.thickness
-            + Vec2::new(0.0, height_on_wall.clamp(0.0, surface.height));
+        let height_on_wall =
+            (projected_pos.y - surface_base_projected.y).clamp(0.0, surface.height);
         let attachment = WallAttachmentPoint {
             segment_key: surface.key,
             offset_along_segment,
-            height_on_wall: height_on_wall.clamp(0.0, surface.height),
+            height_on_wall,
         };
-        let face_world = iso_to_world(projected_face, projection);
+        let base_world = wall_surface_world_pos(surface, offset_along_segment);
+        let visual_offset = wall_surface_visual_offset(surface, projection, height_on_wall);
 
-        if best.as_ref().is_none_or(|(best_acceptance, _, _)| acceptance < *best_acceptance) {
-            best = Some((acceptance, attachment, face_world));
+        if best
+            .as_ref()
+            .is_none_or(|(best_acceptance, _, _, _)| acceptance < *best_acceptance)
+        {
+            best = Some((acceptance, attachment, base_world, visual_offset));
         }
     }
 
-    best.map(|(_, attachment, world_pos)| (attachment, world_pos))
+    best.map(|(_, attachment, base_world, visual_offset)| (attachment, base_world, visual_offset))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::input::WallSurfaceHit;
-    use crate::store::{StoreChunkCoord, StoreBoundarySide, WallSegmentKey};
+    use crate::store::{StoreBoundarySide, StoreChunkCoord, WallSegmentKey};
 
     #[test]
     fn wall_attachment_from_hit_clamps_to_surface_bounds() {

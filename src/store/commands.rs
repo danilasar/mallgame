@@ -1,5 +1,5 @@
-use crate::objects::components::StableObjectId;
-use crate::objects::prototypes::{BuildObjectId, ObjectCatalog};
+use crate::objects::components::{ObjectPlacement, StableObjectId, WallMountedBounds};
+use crate::objects::prototypes::{BuildObjectId, ObjectCatalog, wall_mounted_spec};
 use crate::store::chunks::{StoreChunkCoord, StoreChunkKind};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -31,8 +31,7 @@ pub enum DomainCommand {
 pub struct BuildObjectCommand {
     pub object_id: StableObjectId,
     pub prototype_id: BuildObjectId,
-    pub world_pos: Vec2,
-    pub rotation_index: Option<usize>,
+    pub placement: ObjectPlacement,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +84,12 @@ pub enum DomainCommandRejectReason {
         id: BuildObjectId,
     },
     PlacementInvalid,
+    PrototypeNotWallMounted,
+    WallSegmentMissing,
+    WallSideNotAllowed,
+    WallOffsetOutOfBounds,
+    WallHeightOutOfBounds,
+    WallMountedOverlap,
     RotationInvalid,
     ChunkInvalid,
     #[allow(dead_code)]
@@ -131,6 +136,7 @@ pub struct DomainCommandApplyParams<'w, 's> {
                     &'static crate::objects::components::Footprint,
                     Option<&'static crate::objects::components::BlocksPlacement>,
                 ),
+                Without<crate::objects::components::WallMounted>,
             >,
             Query<
                 'w,
@@ -145,6 +151,8 @@ pub struct DomainCommandApplyParams<'w, 's> {
                 Without<crate::tools::ToolPreview>,
             >,
             Query<'w, 's, (Entity, &'static crate::objects::components::ObjectStableId)>,
+            Query<'w, 's, &'static crate::store::WallSurface>,
+            Query<'w, 's, &'static WallMountedBounds>,
         ),
     >,
 }
@@ -177,7 +185,7 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
                 &catalog,
                 &world_bounds,
                 &store,
-                &set.p0(),
+                &mut set,
             ),
             DomainCommand::MoveObject(c) => {
                 if let Some(&entity) = lookup.get(&c.object_id) {
@@ -215,6 +223,7 @@ pub fn apply_domain_commands(params: DomainCommandApplyParams) {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn apply_build_object(
     c: &BuildObjectCommand,
     commands: &mut Commands,
@@ -222,11 +231,29 @@ fn apply_build_object(
     catalog: &ObjectCatalog,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
-    footprints: &Query<(
-        Entity,
-        &crate::objects::components::WorldPos,
-        &crate::objects::components::Footprint,
-        Option<&crate::objects::components::BlocksPlacement>,
+    set: &mut ParamSet<(
+        Query<
+            (
+                Entity,
+                &crate::objects::components::WorldPos,
+                &crate::objects::components::Footprint,
+                Option<&crate::objects::components::BlocksPlacement>,
+            ),
+            Without<crate::objects::components::WallMounted>,
+        >,
+        Query<
+            (
+                &mut crate::objects::rotation::Rotatable,
+                &mut Sprite,
+                &mut crate::objects::components::Footprint,
+                &mut crate::objects::components::FootAnchor,
+                &mut crate::objects::components::VisualOffset,
+            ),
+            Without<crate::tools::ToolPreview>,
+        >,
+        Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<&crate::store::WallSurface>,
+        Query<&WallMountedBounds>,
     )>,
 ) -> DomainCommandResult {
     let Some(proto) = catalog.prototypes.get(&c.prototype_id) else {
@@ -237,22 +264,98 @@ fn apply_build_object(
         };
     };
 
-    let footprint =
-        crate::objects::components::Footprint::rectangle(proto.placement.footprint_half_extents);
+    match c.placement {
+        ObjectPlacement::Floor { world_pos, .. } => {
+            if proto.placement.kind != crate::objects::prototypes::PlacementKind::Floor {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PlacementInvalid,
+                };
+            }
 
-    let validation = crate::placement::validate_placement(
-        world_bounds,
-        store,
-        footprints,
-        &footprint,
-        c.world_pos,
-        crate::placement::PlacementValidationOptions::default(),
-    );
+            let footprint = crate::objects::components::Footprint::rectangle(
+                proto.placement.footprint_half_extents,
+            );
 
-    if let Err(_e) = validation {
-        return DomainCommandResult::Rejected {
-            reason: DomainCommandRejectReason::PlacementInvalid,
-        };
+            let footprints = set.p0();
+            let validation = crate::placement::validate_placement(
+                world_bounds,
+                store,
+                &footprints,
+                &footprint,
+                world_pos,
+                crate::placement::PlacementValidationOptions::default(),
+            );
+
+            if validation.is_err() {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PlacementInvalid,
+                };
+            }
+        }
+        ObjectPlacement::WallMounted { attachment } => {
+            if proto.placement.kind != crate::objects::prototypes::PlacementKind::WallMounted {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PrototypeNotWallMounted,
+                };
+            }
+            let Some(spec) = wall_mounted_spec(proto) else {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::PrototypeNotWallMounted,
+                };
+            };
+            let surface = {
+                let wall_surfaces = set.p3();
+                let Some(surface) = wall_surfaces
+                    .iter()
+                    .find(|surface| surface.key == attachment.segment_key)
+                    .copied()
+                else {
+                    return DomainCommandResult::Rejected {
+                        reason: DomainCommandRejectReason::WallSegmentMissing,
+                    };
+                };
+                surface
+            };
+            if !spec.allowed_sides.contains(&attachment.segment_key.side) {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::WallSideNotAllowed,
+                };
+            }
+            let half_width = spec.width * 0.5;
+            if attachment.offset_along_segment < half_width
+                || attachment.offset_along_segment > surface.length - half_width
+            {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::WallOffsetOutOfBounds,
+                };
+            }
+            if attachment.height_on_wall < 0.0
+                || attachment.height_on_wall > surface.height - spec.height
+            {
+                return DomainCommandResult::Rejected {
+                    reason: DomainCommandRejectReason::WallHeightOutOfBounds,
+                };
+            }
+            let mounted_objects = set.p4();
+            let new_min = attachment.offset_along_segment - half_width;
+            let new_max = attachment.offset_along_segment + half_width;
+            let new_height_min = attachment.height_on_wall;
+            let new_height_max = attachment.height_on_wall + spec.height;
+            for existing in mounted_objects.iter() {
+                if existing.segment_key != attachment.segment_key {
+                    continue;
+                }
+                let horizontal_overlap =
+                    new_min < existing.offset_max && new_max > existing.offset_min;
+                let vertical_overlap =
+                    new_height_min < existing.height_max && new_height_max > existing.height_min;
+                if horizontal_overlap && vertical_overlap {
+                    return DomainCommandResult::Rejected {
+                        reason: DomainCommandRejectReason::WallMountedOverlap,
+                    };
+                }
+            }
+        }
     }
 
     if let Err(e) = crate::objects::prototypes::spawn_store_object_from_prototype(
@@ -262,8 +365,7 @@ fn apply_build_object(
         crate::objects::prototypes::SpawnStoreObjectParams {
             stable_id: c.object_id,
             prototype_id: c.prototype_id.clone(),
-            world_pos: c.world_pos,
-            rotation_index: c.rotation_index,
+            placement: c.placement,
         },
     ) {
         error!("Spawn failed: {}", e);
@@ -283,12 +385,15 @@ fn apply_move_object(
     entity: Entity,
     commands: &mut Commands,
     set: &mut ParamSet<(
-        Query<(
-            Entity,
-            &crate::objects::components::WorldPos,
-            &crate::objects::components::Footprint,
-            Option<&crate::objects::components::BlocksPlacement>,
-        )>,
+        Query<
+            (
+                Entity,
+                &crate::objects::components::WorldPos,
+                &crate::objects::components::Footprint,
+                Option<&crate::objects::components::BlocksPlacement>,
+            ),
+            Without<crate::objects::components::WallMounted>,
+        >,
         Query<
             (
                 &mut crate::objects::rotation::Rotatable,
@@ -300,6 +405,8 @@ fn apply_move_object(
             Without<crate::tools::ToolPreview>,
         >,
         Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<&crate::store::WallSurface>,
+        Query<&WallMountedBounds>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
@@ -365,12 +472,15 @@ fn apply_rotate_object(
     c: &RotateObjectCommand,
     entity: Entity,
     set: &mut ParamSet<(
-        Query<(
-            Entity,
-            &crate::objects::components::WorldPos,
-            &crate::objects::components::Footprint,
-            Option<&crate::objects::components::BlocksPlacement>,
-        )>,
+        Query<
+            (
+                Entity,
+                &crate::objects::components::WorldPos,
+                &crate::objects::components::Footprint,
+                Option<&crate::objects::components::BlocksPlacement>,
+            ),
+            Without<crate::objects::components::WallMounted>,
+        >,
         Query<
             (
                 &mut crate::objects::rotation::Rotatable,
@@ -382,6 +492,8 @@ fn apply_rotate_object(
             Without<crate::tools::ToolPreview>,
         >,
         Query<(Entity, &crate::objects::components::ObjectStableId)>,
+        Query<&crate::store::WallSurface>,
+        Query<&WallMountedBounds>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
@@ -472,9 +584,7 @@ fn apply_delete_object(
         };
     };
 
-    if let Ok(mut e) = commands.get_entity(entity) {
-        e.despawn();
-    }
+    commands.entity(entity).try_despawn();
 
     DomainCommandResult::Applied {
         events: vec![crate::store::events::DomainEvent::ObjectDeleted { id: c.object_id }],
@@ -617,8 +727,10 @@ mod tests {
             .push_back(DomainCommand::BuildObject(BuildObjectCommand {
                 object_id: id2,
                 prototype_id: BuildObjectId::new("fixture.shelf.basic"),
-                world_pos: pos,
-                rotation_index: Some(0),
+                placement: crate::objects::components::ObjectPlacement::Floor {
+                    world_pos: pos,
+                    rotation_index: Some(0),
+                },
             }));
 
         app.update();
@@ -656,8 +768,10 @@ mod tests {
                     .push_back(DomainCommand::BuildObject(BuildObjectCommand {
                         object_id: StableObjectId(5000),
                         prototype_id: id.clone(),
-                        world_pos: pos,
-                        rotation_index: Some(0),
+                        placement: crate::objects::components::ObjectPlacement::Floor {
+                            world_pos: pos,
+                            rotation_index: Some(0),
+                        },
                     }));
             });
 
@@ -681,5 +795,66 @@ mod tests {
             found,
             "Object should have been built with correct capabilities"
         );
+    }
+
+    #[test]
+    fn test_wall_mounted_build_spawns_store_object_without_floor_blocker() {
+        let mut app = setup_test_app();
+        let object_id = StableObjectId(6000);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: -1, y: -1 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        app.world_mut().spawn(crate::store::WallSurface {
+            key: segment_key,
+            start: Vec2::new(-128.0, 0.0),
+            end: Vec2::new(0.0, 0.0),
+            length: 128.0,
+            height: 192.0,
+            thickness: 8.0,
+            normal: Vec2::Y,
+        });
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::BuildObject(BuildObjectCommand {
+                object_id,
+                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
+                placement: crate::objects::components::ObjectPlacement::WallMounted {
+                    attachment: crate::objects::components::WallAttachmentPoint {
+                        segment_key,
+                        offset_along_segment: 64.0,
+                        height_on_wall: 48.0,
+                    },
+                },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query::<(
+            &crate::objects::components::ObjectStableId,
+            &crate::objects::components::WallMounted,
+            &crate::objects::components::WallMountedBounds,
+            Option<&crate::objects::components::Footprint>,
+            Option<&crate::objects::components::BlocksPlacement>,
+            Option<&crate::objects::components::Movable>,
+            &crate::objects::components::StoreObject,
+        )>();
+        let found = query.iter(world).any(
+            |(stable_id, mounted, bounds, footprint, blocker, movable, _store_object)| {
+                stable_id.0 == object_id
+                    && mounted.attachment.segment_key == segment_key
+                    && bounds.segment_key == segment_key
+                    && footprint.is_none()
+                    && blocker.is_none()
+                    && movable.is_none()
+            },
+        );
+
+        assert!(found, "wall-mounted StoreObject was not spawned correctly");
     }
 }

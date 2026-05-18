@@ -35,6 +35,7 @@ pub fn update_hovered_object(
             Entity,
             Option<&WorldPos>,
             Option<&FootAnchor>,
+            Option<&VisualOffset>,
             Option<&WallSurface>,
             Option<&Sprite>,
             &Transform,
@@ -75,6 +76,7 @@ pub fn update_hovered_object(
         entity,
         world_pos,
         foot_anchor,
+        visual_offset,
         wall_surface,
         sprite,
         transform,
@@ -86,7 +88,14 @@ pub fn update_hovered_object(
         let hit = if let Some(surface) = wall_surface {
             wall_surface_hit(pointer.projected_pos, *projection, entity, surface).is_some()
         } else {
-            object_hit(pointer.projected_pos, *projection, world_pos, foot_anchor, sprite)
+            object_hit(
+                pointer.projected_pos,
+                *projection,
+                world_pos,
+                foot_anchor,
+                visual_offset,
+                sprite,
+            )
         };
 
         if hit {
@@ -134,6 +143,7 @@ fn object_hit(
     projection: IsoProjection,
     world_pos: Option<&WorldPos>,
     foot_anchor: Option<&FootAnchor>,
+    visual_offset: Option<&VisualOffset>,
     sprite: Option<&Sprite>,
 ) -> bool {
     let (Some(world_pos), Some(foot_anchor)) = (world_pos, foot_anchor) else {
@@ -147,7 +157,7 @@ fn object_hit(
     };
 
     let foot_projected = world_to_iso(world_pos.0, projection);
-    let sprite_center = foot_projected - foot_anchor.0;
+    let sprite_center = foot_projected - foot_anchor.0 + visual_offset.map_or(Vec2::ZERO, |v| v.0);
     let local = projected_pos - sprite_center;
     let half = size * 0.5;
 
@@ -189,7 +199,9 @@ pub fn wall_surface_hit(
     let offset_along_segment = (wall_surface.length * t).clamp(0.0, wall_surface.length);
     let base_world = wall_surface.start.lerp(wall_surface.end, t);
     let base_projected = projected_start.lerp(projected_end, t);
-    let height_on_wall = (projected_pos.y - base_projected.y).clamp(0.0, wall_surface.height);
+    let surface_base_projected = base_projected + thickness_offset;
+    let height_on_wall =
+        (projected_pos.y - surface_base_projected.y).clamp(0.0, wall_surface.height);
 
     Some(WallSurfaceHit {
         entity,
@@ -249,7 +261,7 @@ mod tests {
         let projected_mid = projected_start.lerp(projected_end, 0.5);
         let wall_direction = (projected_end - projected_start).normalize();
         let wall_normal = Vec2::new(-wall_direction.y, wall_direction.x);
-        let projected_mid_on_face = projected_mid + wall_normal * 1.0;
+        let projected_mid_on_face = projected_mid + wall_normal * surface.thickness;
 
         let hit = wall_surface_hit(
             projected_mid_on_face,
@@ -257,7 +269,7 @@ mod tests {
             Entity::from_bits(1),
             &surface,
         )
-            .expect("expected a wall hit");
+        .expect("expected a wall hit");
 
         assert_eq!(hit.key, surface.key);
         assert!((hit.offset_along_segment - 2.0).abs() < 0.001);
@@ -266,15 +278,12 @@ mod tests {
         assert!((hit.world_pos - Vec2::new(2.0, 0.0)).length() < 0.001);
 
         let elevated = projected_mid_on_face + Vec2::new(0.0, 0.5);
-        let elevated_hit =
-            wall_surface_hit(elevated, projection, Entity::from_bits(2), &surface)
-                .expect("expected elevated wall hit");
+        let elevated_hit = wall_surface_hit(elevated, projection, Entity::from_bits(2), &surface)
+            .expect("expected elevated wall hit");
         assert!(elevated_hit.height_on_wall > 0.0);
 
         let wall_face = projected_mid_on_face + wall_normal * 0.5;
-        assert!(
-            wall_surface_hit(wall_face, projection, Entity::from_bits(4), &surface).is_some()
-        );
+        assert!(wall_surface_hit(wall_face, projection, Entity::from_bits(4), &surface).is_some());
 
         let behind_wall = projected_mid_on_face - wall_normal * 2.5;
         assert!(

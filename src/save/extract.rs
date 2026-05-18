@@ -1,7 +1,7 @@
 use crate::objects::components::{
-    ObjectPrototypeId, ObjectStableId, StableObjectIdAllocator, StoreObject, WorldPos,
+    ObjectPlacement, ObjectPlacementComponent, ObjectPrototypeId, ObjectStableId,
+    StableObjectIdAllocator, StoreObject,
 };
-use crate::objects::rotation::Rotatable;
 use crate::save::types::*;
 use crate::store::StoreArea;
 use crate::tools::ToolPreview;
@@ -13,8 +13,7 @@ type SaveObjectsQuery<'w, 's> = Query<
     (
         &'static ObjectStableId,
         &'static ObjectPrototypeId,
-        &'static WorldPos,
-        Option<&'static Rotatable>,
+        &'static ObjectPlacementComponent,
     ),
     (With<StoreObject>, Without<ToolPreview>),
 >;
@@ -27,14 +26,10 @@ pub fn extract_save_game(
 ) -> SaveGame {
     let mut saved_objects: Vec<ObjectSave> = objects_query
         .iter()
-        .map(|(stable_id, proto_id, pos, rotatable)| ObjectSave {
+        .map(|(stable_id, proto_id, placement)| ObjectSave {
             id: stable_id.0,
             prototype_id: proto_id.0.clone(),
-            world_pos: WorldPosSave {
-                x: pos.0.x,
-                y: pos.0.y,
-            },
-            rotation_index: rotatable.map(|r| r.current),
+            placement: placement_save(placement.placement),
         })
         .collect();
 
@@ -60,5 +55,28 @@ pub fn extract_save_game(
             owned_chunks: saved_chunks,
         },
         objects: saved_objects,
+    }
+}
+
+fn placement_save(placement: ObjectPlacement) -> ObjectPlacementSave {
+    match placement {
+        ObjectPlacement::Floor {
+            world_pos,
+            rotation_index,
+        } => ObjectPlacementSave::Floor {
+            world_pos: WorldPosSave {
+                x: world_pos.x,
+                y: world_pos.y,
+            },
+            rotation_index,
+        },
+        ObjectPlacement::WallMounted { attachment } => ObjectPlacementSave::WallMounted {
+            segment_key: WallSegmentKeySave {
+                chunk: attachment.segment_key.chunk,
+                side: attachment.segment_key.side,
+            },
+            offset_along_segment: attachment.offset_along_segment,
+            height_on_wall: attachment.height_on_wall,
+        },
     }
 }

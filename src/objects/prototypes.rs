@@ -6,7 +6,9 @@ use std::fmt;
 
 use super::components::*;
 use super::rotation::{Rotatable, RotationVariant};
-use crate::tools::{NonInteractive, PlacementPreview, ToolPreview, ToolPreviewKind, WallMountedPreview};
+use crate::tools::{
+    NonInteractive, PlacementPreview, ToolPreview, ToolPreviewKind, WallMountedPreview,
+};
 
 /// Stable identifier for an object prototype.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -173,6 +175,23 @@ pub enum ObjectCapabilitySpec {
     CheckoutPoint(CheckoutPointSpec),
     Decor(DecorSpec),
     NpcInteractionPoints(NpcInteractionPointsSpec),
+    WallMounted(WallMountedSpec),
+    Window(WindowSpec),
+}
+
+#[derive(Debug, Clone)]
+pub struct WallMountedSpec {
+    pub width: f32,
+    pub height: f32,
+    pub allowed_sides: Vec<crate::store::StoreBoundarySide>,
+    pub default_height_on_wall: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct WindowSpec {
+    pub width: f32,
+    pub height: f32,
+    pub glass_alpha: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -253,8 +272,7 @@ pub struct SelectBuildPrototypeRequested {
 pub struct SpawnStoreObjectParams {
     pub stable_id: StableObjectId,
     pub prototype_id: BuildObjectId,
-    pub world_pos: Vec2,
-    pub rotation_index: Option<usize>,
+    pub placement: ObjectPlacement,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,7 +303,16 @@ pub fn spawn_store_object_from_prototype(
     };
 
     let image = asset_server.load(&proto.visuals.asset_path);
-    let rotation_index = params.rotation_index.unwrap_or(0);
+    let rotation_index = match params.placement {
+        ObjectPlacement::Floor { rotation_index, .. } => rotation_index.unwrap_or(0),
+        ObjectPlacement::WallMounted { .. } => 0,
+    };
+    let is_wall_mounted = matches!(params.placement, ObjectPlacement::WallMounted { .. });
+    let initial_world_pos = match params.placement {
+        ObjectPlacement::Floor { world_pos, .. } => world_pos,
+        ObjectPlacement::WallMounted { .. } => Vec2::ZERO,
+    };
+    let wall_mounted_spec = wall_mounted_spec(proto).cloned();
 
     let mut entity_commands = commands.spawn((
         (
@@ -294,19 +321,24 @@ pub fn spawn_store_object_from_prototype(
                 custom_size: Some(proto.visuals.sprite_size),
                 ..default()
             },
-            WorldPos(params.world_pos),
+            WorldPos(initial_world_pos),
             ProjectedPos::default(),
             FootAnchor(proto.visuals.foot_anchor),
             VisualOffset(Vec2::ZERO),
-            SortLayer::Objects,
+            if matches!(params.placement, ObjectPlacement::WallMounted { .. }) {
+                SortLayer::WallTopCap
+            } else {
+                SortLayer::Objects
+            },
             SortBias(proto.visuals.sort_bias),
-            Footprint::rectangle(proto.placement.footprint_half_extents),
+            ObjectPlacementComponent {
+                placement: params.placement,
+            },
         ),
         (
             Interactive,
             Selectable,
             Inspectable,
-            Movable,
             Deletable,
             StoreObject,
             InteractionRole::WorldObject,
@@ -316,8 +348,35 @@ pub fn spawn_store_object_from_prototype(
         ),
     ));
 
-    if proto.placement.placement_blocker {
+    if !is_wall_mounted {
+        entity_commands.insert(Footprint::rectangle(proto.placement.footprint_half_extents));
+    }
+
+    if matches!(params.placement, ObjectPlacement::Floor { .. }) {
+        entity_commands.insert(Movable);
+    }
+
+    if matches!(params.placement, ObjectPlacement::Floor { .. })
+        && proto.placement.placement_blocker
+    {
         entity_commands.insert(BlocksPlacement);
+    }
+
+    if let (ObjectPlacement::WallMounted { attachment }, Some(spec)) =
+        (params.placement, wall_mounted_spec)
+    {
+        entity_commands.insert(WallMounted {
+            attachment,
+            width: spec.width,
+            height: spec.height,
+        });
+        entity_commands.insert(WallMountedBounds {
+            segment_key: attachment.segment_key,
+            offset_min: attachment.offset_along_segment - spec.width * 0.5,
+            offset_max: attachment.offset_along_segment + spec.width * 0.5,
+            height_min: attachment.height_on_wall,
+            height_max: attachment.height_on_wall + spec.height,
+        });
     }
 
     // Map capabilities to components
@@ -352,6 +411,18 @@ pub fn spawn_store_object_from_prototype(
                         .collect(),
                 });
             }
+            ObjectCapabilitySpec::WallMounted(_) => {}
+            ObjectCapabilitySpec::Window(spec) => {
+                entity_commands.insert(WallWindow {
+                    glass_alpha: spec.glass_alpha,
+                });
+                entity_commands.insert(Sprite {
+                    image: image.clone(),
+                    custom_size: Some(proto.visuals.sprite_size),
+                    color: Color::srgba(0.75, 0.90, 1.0, spec.glass_alpha),
+                    ..default()
+                });
+            }
         }
     }
 
@@ -377,6 +448,16 @@ pub fn spawn_store_object_from_prototype(
     }
 
     Ok(entity)
+}
+
+pub fn wall_mounted_spec(proto: &ObjectPrototype) -> Option<&WallMountedSpec> {
+    proto.capabilities.iter().find_map(|cap| {
+        if let ObjectCapabilitySpec::WallMounted(spec) = cap {
+            Some(spec)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn spawn_ghost_from_prototype(
@@ -635,7 +716,7 @@ pub fn setup_object_catalog(mut commands: Commands) {
         },
     );
 
-    // 4. Wall decor placeholder for Stage 5B.2 preview testing
+    // 4. Wall decor and visual-only window placeholders for Stage 5B.
     catalog.prototypes.insert(
         BuildObjectId::new("wall.decor.placeholder"),
         ObjectPrototype {
@@ -669,9 +750,79 @@ pub fn setup_object_catalog(mut commands: Commands) {
                 kind: RotationKind::None,
                 rotated_asset_path: None,
             },
-            capabilities: vec![ObjectCapabilitySpec::Decor(DecorSpec {
-                decor_kind: DecorKind::Misc,
-            })],
+            capabilities: vec![
+                ObjectCapabilitySpec::Decor(DecorSpec {
+                    decor_kind: DecorKind::Misc,
+                }),
+                ObjectCapabilitySpec::WallMounted(WallMountedSpec {
+                    width: 64.0,
+                    height: 64.0,
+                    allowed_sides: vec![
+                        crate::store::StoreBoundarySide::Top,
+                        crate::store::StoreBoundarySide::Right,
+                    ],
+                    default_height_on_wall: 48.0,
+                }),
+            ],
+            initial_state: ObjectInitialStateSpec::None,
+        },
+    );
+
+    catalog.prototypes.insert(
+        BuildObjectId::new("wall.window.basic_visual"),
+        ObjectPrototype {
+            id: BuildObjectId::new("wall.window.basic_visual"),
+            display: ObjectDisplaySpec {
+                display_name: "Basic Window".to_string(),
+                description: Some(
+                    "Visual-only wall window. No cutout, collision, or navigation semantics."
+                        .to_string(),
+                ),
+                icon: None,
+            },
+            catalog: ObjectCatalogSpec {
+                category: ObjectCategory::Decor,
+                ribbon_tab: BuildRibbonTab::Walls,
+                ribbon_group: BuildRibbonGroup::Walls,
+                sort_order: 1000,
+                availability: CatalogAvailability::Available,
+            },
+            placement: PlacementSpec {
+                kind: PlacementKind::WallMounted,
+                footprint_half_extents: Vec2::new(28.0, 18.0),
+                placement_blocker: false,
+                navigation_blocker: false,
+            },
+            visuals: VisualSpec {
+                asset_path: "tree.png".to_string(),
+                asset_id: "wall_window_basic_visual".to_string(),
+                sprite_size: Vec2::new(72.0, 72.0),
+                foot_anchor: Vec2::new(0.0, -24.0),
+                sort_bias: 0.1,
+            },
+            rotation: RotationSpec {
+                kind: RotationKind::None,
+                rotated_asset_path: None,
+            },
+            capabilities: vec![
+                ObjectCapabilitySpec::Decor(DecorSpec {
+                    decor_kind: DecorKind::Misc,
+                }),
+                ObjectCapabilitySpec::WallMounted(WallMountedSpec {
+                    width: 72.0,
+                    height: 72.0,
+                    allowed_sides: vec![
+                        crate::store::StoreBoundarySide::Top,
+                        crate::store::StoreBoundarySide::Right,
+                    ],
+                    default_height_on_wall: 56.0,
+                }),
+                ObjectCapabilitySpec::Window(WindowSpec {
+                    width: 72.0,
+                    height: 72.0,
+                    glass_alpha: 0.45,
+                }),
+            ],
             initial_state: ObjectInitialStateSpec::None,
         },
     );
@@ -747,6 +898,55 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                     if !has_checkout {
                         errors.push(format!(
                             "Prototype {:?} has CheckoutPoint but no Checkout interaction point",
+                            proto.id
+                        ));
+                    }
+                }
+                ObjectCapabilitySpec::WallMounted(spec) => {
+                    if proto.placement.kind != PlacementKind::WallMounted {
+                        errors.push(format!(
+                            "Prototype {:?} has WallMounted capability but non-wall placement",
+                            proto.id
+                        ));
+                    }
+                    if spec.width <= 0.0 || spec.height <= 0.0 {
+                        errors.push(format!(
+                            "Prototype {:?} has invalid WallMounted size",
+                            proto.id
+                        ));
+                    }
+                    if spec.default_height_on_wall < 0.0 {
+                        errors.push(format!(
+                            "Prototype {:?} has invalid default wall mount height",
+                            proto.id
+                        ));
+                    }
+                    if spec.allowed_sides.is_empty() {
+                        errors.push(format!(
+                            "Prototype {:?} has no allowed wall sides",
+                            proto.id
+                        ));
+                    }
+                }
+                ObjectCapabilitySpec::Window(spec) => {
+                    if proto.placement.kind != PlacementKind::WallMounted {
+                        errors.push(format!(
+                            "Prototype {:?} has Window capability but is not wall-mounted",
+                            proto.id
+                        ));
+                    }
+                    if spec.width <= 0.0 || spec.height <= 0.0 {
+                        errors.push(format!("Prototype {:?} has invalid Window size", proto.id));
+                    }
+                    if !(0.0..=1.0).contains(&spec.glass_alpha) {
+                        errors.push(format!(
+                            "Prototype {:?} has invalid Window glass alpha",
+                            proto.id
+                        ));
+                    }
+                    if wall_mounted_spec(proto).is_none() {
+                        errors.push(format!(
+                            "Prototype {:?} has Window capability without WallMounted spec",
                             proto.id
                         ));
                     }
@@ -841,8 +1041,10 @@ mod tests {
             SpawnStoreObjectParams {
                 stable_id: StableObjectId(1),
                 prototype_id: proto_id.clone(),
-                world_pos: Vec2::ZERO,
-                rotation_index: None,
+                placement: ObjectPlacement::Floor {
+                    world_pos: Vec2::ZERO,
+                    rotation_index: None,
+                },
             },
         )
         .expect("Spawn failed");
@@ -854,6 +1056,56 @@ mod tests {
         assert!(world.entity(entity).contains::<NpcInteractionPoints>());
         assert!(!world.entity(entity).contains::<CheckoutPoint>());
         assert!(world.entity(entity).contains::<StoreObject>());
+        assert!(world.entity(entity).contains::<Footprint>());
+        assert!(world.entity(entity).contains::<Movable>());
+    }
+
+    #[test]
+    fn test_wall_mounted_factory_does_not_add_floor_geometry() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(AssetPlugin::default());
+        app.init_asset::<Image>();
+
+        let commands = app.world_mut().commands();
+        setup_object_catalog(commands);
+        app.update();
+
+        let catalog = app.world().resource::<ObjectCatalog>().clone();
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: crate::store::StoreChunkCoord { x: -1, y: -1 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        let mut commands = app.world_mut().commands();
+        let entity = spawn_store_object_from_prototype(
+            &mut commands,
+            &asset_server,
+            &catalog,
+            SpawnStoreObjectParams {
+                stable_id: StableObjectId(2),
+                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
+                placement: ObjectPlacement::WallMounted {
+                    attachment: WallAttachmentPoint {
+                        segment_key,
+                        offset_along_segment: 64.0,
+                        height_on_wall: 48.0,
+                    },
+                },
+            },
+        )
+        .expect("Spawn failed");
+
+        app.update();
+
+        let world = app.world();
+        assert!(world.entity(entity).contains::<StoreObject>());
+        assert!(world.entity(entity).contains::<WallMounted>());
+        assert!(world.entity(entity).contains::<WallMountedBounds>());
+        assert!(!world.entity(entity).contains::<Footprint>());
+        assert!(!world.entity(entity).contains::<BlocksPlacement>());
+        assert!(!world.entity(entity).contains::<Movable>());
     }
 
     #[test]
@@ -875,5 +1127,19 @@ mod tests {
         assert_eq!(proto.placement.kind, PlacementKind::WallMounted);
         assert_eq!(proto.catalog.ribbon_tab, BuildRibbonTab::Walls);
         assert_eq!(proto.catalog.availability, CatalogAvailability::Available);
+
+        let window = catalog
+            .prototypes
+            .get(&BuildObjectId::new("wall.window.basic_visual"))
+            .expect("visual window prototype should exist");
+
+        assert_eq!(window.placement.kind, PlacementKind::WallMounted);
+        assert_eq!(window.catalog.ribbon_tab, BuildRibbonTab::Walls);
+        assert!(
+            window
+                .capabilities
+                .iter()
+                .any(|cap| matches!(cap, ObjectCapabilitySpec::Window(WindowSpec { .. })))
+        );
     }
 }
