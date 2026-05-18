@@ -13,6 +13,7 @@ pub struct PointerTargets {
     pub wall_surface: Option<Entity>,
     pub exterior: Option<Entity>,
     pub debug: Option<Entity>,
+    pub npc: Option<Entity>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,6 +39,7 @@ pub fn update_hovered_object(
             Option<&VisualOffset>,
             Option<&WallSurface>,
             Option<&Sprite>,
+            Option<&crate::npc::components::NpcPickBounds>,
             &Transform,
             &SortLayer,
             &InteractionRole,
@@ -51,6 +53,7 @@ pub fn update_hovered_object(
     targets.wall_surface = None;
     targets.exterior = None;
     targets.debug = None;
+    targets.npc = None;
 
     // Invariant: PointerContext.over_ui is set by the UI system if cursor is over standard UI elements.
     // However, if we are over a WorldWidget, we might still want to maintain the hovered world object
@@ -71,6 +74,7 @@ pub fn update_hovered_object(
     let mut hit_wall_surface: Option<(Entity, f32)> = None;
     let mut hit_exterior: Option<(Entity, f32)> = None;
     let mut hit_debug: Option<(Entity, f32)> = None;
+    let mut hit_npc: Option<(Entity, f32)> = None;
 
     for (
         entity,
@@ -79,6 +83,7 @@ pub fn update_hovered_object(
         visual_offset,
         wall_surface,
         sprite,
+        npc_bounds,
         transform,
         layer,
         role,
@@ -87,6 +92,14 @@ pub fn update_hovered_object(
     {
         let hit = if let Some(surface) = wall_surface {
             wall_surface_hit(pointer.projected_pos, *projection, entity, surface).is_some()
+        } else if let Some(bounds) = npc_bounds {
+            npc_hit(
+                pointer.projected_pos,
+                *projection,
+                world_pos,
+                foot_anchor,
+                bounds,
+            )
         } else {
             object_hit(
                 pointer.projected_pos,
@@ -113,6 +126,9 @@ pub fn update_hovered_object(
                 InteractionRole::Exterior if hit_exterior.is_none_or(|(_, r)| rank > r) => {
                     hit_exterior = Some((entity, rank));
                 }
+                InteractionRole::Npc if hit_npc.is_none_or(|(_, r)| rank > r) => {
+                    hit_npc = Some((entity, rank));
+                }
                 InteractionRole::Overlay | InteractionRole::Debug
                     if hit_debug.is_none_or(|(_, r)| rank > r) =>
                 {
@@ -128,11 +144,13 @@ pub fn update_hovered_object(
     targets.wall_surface = hit_wall_surface.map(|(e, _)| e);
     targets.exterior = hit_exterior.map(|(e, _)| e);
     targets.debug = hit_debug.map(|(e, _)| e);
+    targets.npc = hit_npc.map(|(e, _)| e);
 
-    // If we are over a widget, we DON'T want picking to fail for the world object behind it
-    // because that's usually the object the widget belongs to.
+    // Priority for pointer.hovered_entity
     if let Some(widget) = targets.world_widget {
         pointer.hovered_entity = Some(widget);
+    } else if let Some(npc) = targets.npc {
+        pointer.hovered_entity = Some(npc);
     } else {
         pointer.hovered_entity = targets.world_object;
     }
@@ -160,6 +178,25 @@ fn object_hit(
     let sprite_center = foot_projected - foot_anchor.0 + visual_offset.map_or(Vec2::ZERO, |v| v.0);
     let local = projected_pos - sprite_center;
     let half = size * 0.5;
+
+    local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y
+}
+
+fn npc_hit(
+    projected_pos: Vec2,
+    projection: IsoProjection,
+    world_pos: Option<&WorldPos>,
+    foot_anchor: Option<&FootAnchor>,
+    bounds: &crate::npc::components::NpcPickBounds,
+) -> bool {
+    let (Some(world_pos), Some(foot_anchor)) = (world_pos, foot_anchor) else {
+        return false;
+    };
+
+    let foot_projected = world_to_iso(world_pos.0, projection);
+    let bounds_center = foot_projected - foot_anchor.0 + bounds.offset;
+    let local = projected_pos - bounds_center;
+    let half = bounds.size * 0.5;
 
     local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y
 }

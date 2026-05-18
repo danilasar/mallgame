@@ -1,4 +1,5 @@
 mod input;
+mod npc;
 mod objects;
 mod placement;
 mod presentation;
@@ -9,6 +10,7 @@ mod ui;
 
 use bevy::prelude::*;
 use input::*;
+use npc::NpcPlugin;
 use objects::components::*;
 use objects::prototypes::*;
 use objects::rotation::ObjectRotationPlugin;
@@ -49,6 +51,7 @@ fn main() {
             StoreBoundaryPlugin,
             StoreOverlayPlugin,
             SaveLoadPlugin,
+            NpcPlugin,
         ))
         .add_plugins((
             ToolCorePlugin,

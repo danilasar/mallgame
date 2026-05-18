@@ -390,6 +390,7 @@ pub enum InteractionRole {
     ToolPreview,
     Overlay,
     Debug,
+    Npc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
