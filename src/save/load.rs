@@ -100,31 +100,41 @@ pub fn build_load_plan(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn reset_runtime_for_load(
-    commands: &mut Commands,
+pub fn reset_tool_session(
     session: &mut ToolSessionState,
     return_state: &mut ToolReturnState,
     next_mode: &mut NextState<ToolMode>,
     selection: &mut crate::tools::SelectionState,
     build_selection: &mut BuildSelectionState,
+)
+{
+    session.active = None;
+    return_state.previous = None;
+    next_mode.set(ToolMode::Cursor);
+    selection.primary = None;
+    build_selection.selected_prototype_id = None;
+}
+
+pub fn reset_tool_runtime_flags(
+    cycle: &mut PrimaryPointerCycle,
+    gate: &mut ToolInputGate,
+    drag: &mut PointerDragState,
+    command_queue: &mut crate::store::commands::DomainCommandQueue,
+) {
+    cycle.owner = crate::tools::PointerPressOwner::None;
+    gate.world_blocked = false;
+    drag.is_camera_dragging = false;
+    command_queue.commands.clear();
+}
+
+pub fn reset_ui_runtime(
     ribbon_state: &mut RibbonState,
     ui_runtime: &mut UiRuntime,
     active_panel: &mut ActiveInterfacePanel,
     window_stack: &mut UiWindowStack,
     modal_stack: &mut ModalStack,
     targets: &mut PointerTargets,
-    cycle: &mut PrimaryPointerCycle,
-    gate: &mut ToolInputGate,
-    drag: &mut PointerDragState,
-    command_queue: &mut crate::store::commands::DomainCommandQueue,
-    runtime_owned: &Query<Entity, With<crate::objects::components::RuntimeOwned>>,
 ) {
-    session.active = None;
-    return_state.previous = None;
-    next_mode.set(ToolMode::Cursor);
-    selection.primary = None;
-    build_selection.selected_prototype_id = None;
     ribbon_state.is_open = false;
     ribbon_state.active_tab = BuildRibbonTab::Fixtures;
     ui_runtime.pointer_over_ui = false;
@@ -134,11 +144,9 @@ pub fn reset_runtime_for_load(
     targets.world_object = None;
     targets.world_widget = None;
     targets.debug = None;
-    cycle.owner = crate::tools::PointerPressOwner::None;
-    gate.world_blocked = false;
-    drag.is_camera_dragging = false;
-    command_queue.commands.clear();
+}
 
+pub fn clear_runtime_owned(commands: &mut Commands, runtime_owned: Vec<Entity>) {
     for entity in runtime_owned {
         commands.entity(entity).despawn();
     }

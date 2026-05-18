@@ -8,7 +8,10 @@ use crate::input::{InputAction, InputActionState};
 use crate::objects::components::{StableObjectIdAllocator, StoreObject};
 use crate::save::extract::extract_save_game;
 use crate::save::io::{read_save_file, write_save_file_atomic};
-use crate::save::load::{apply_load_plan, build_load_plan, reset_runtime_for_load};
+use crate::save::load::{
+    apply_load_plan, build_load_plan, clear_runtime_owned, reset_tool_runtime_flags,
+    reset_tool_session, reset_ui_runtime,
+};
 use crate::save::validation::SaveLoadLimits;
 use crate::store::{StoreArea, WorldBounds};
 use crate::tools::ToolSessionState;
@@ -120,25 +123,30 @@ fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: Quick
                         plan.object_plans.len()
                     );
 
-                    reset_runtime_for_load(
-                        &mut p.commands,
+                    let runtime_owned_entities: Vec<_> = p.runtime_owned.iter().collect();
+
+                    reset_tool_session(
                         &mut p.session,
                         &mut p.return_state,
                         &mut p.next_mode,
                         &mut p.selection,
                         &mut p.build_selection,
+                    );
+                    reset_tool_runtime_flags(
+                        &mut p.cycle,
+                        &mut p.gate,
+                        &mut p.drag,
+                        &mut p.command_queue,
+                    );
+                    reset_ui_runtime(
                         &mut p.ribbon_state,
                         &mut p.ui_runtime,
                         &mut p.active_panel,
                         &mut p.window_stack,
                         &mut p.modal_stack,
                         &mut p.targets,
-                        &mut p.cycle,
-                        &mut p.gate,
-                        &mut p.drag,
-                        &mut p.command_queue,
-                        &p.runtime_owned,
                     );
+                    clear_runtime_owned(&mut p.commands, runtime_owned_entities);
 
                     let report = apply_load_plan(
                         &mut p.commands,
