@@ -21,7 +21,7 @@ pub fn update_highlight_intents(
                     if move_session.source_entity == entity {
                         // source of current move is not highlighted by normal hover/selection logic
                     }
-                } else if tool.hovered_object == Some(entity) {
+                } else if tool.hovered_entity == Some(entity) {
                     if movable.is_some() {
                         highlight_kind = Some(HighlightKind::Hover);
                     }
@@ -30,12 +30,12 @@ pub fn update_highlight_intents(
                 }
             }
             ToolMode::Delete => {
-                if tool.hovered_object == Some(entity) && deletable.is_some() {
+                if tool.hovered_entity == Some(entity) && deletable.is_some() {
                     highlight_kind = Some(HighlightKind::DeleteDanger);
                 }
             }
             _ => {
-                if tool.hovered_object == Some(entity) {
+                if tool.hovered_entity == Some(entity) {
                     highlight_kind = Some(HighlightKind::Hover);
                 } else if is_selected {
                     highlight_kind = Some(HighlightKind::Selected);

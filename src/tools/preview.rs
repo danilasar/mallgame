@@ -1,37 +1,31 @@
-use crate::objects::prototypes::BuildPrototypeId;
-use crate::store::PlacementInvalidReason;
+use crate::objects::prototypes::BuildObjectId;
 use bevy::prelude::*;
 
-/// Marker for entities that are temporary tool previews.
+pub struct ToolPreviewPlugin;
+
+impl Plugin for ToolPreviewPlugin {
+    fn build(&self, _app: &mut App) {}
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ToolPreview;
 
-/// Marker for entities that should not be interactive (not pickable).
-#[derive(Component, Debug, Clone, Copy)]
-pub struct NonInteractive;
-
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone)]
 #[allow(dead_code)]
 pub enum ToolPreviewKind {
-    Build { prototype_id: BuildPrototypeId },
+    Build { prototype_id: BuildObjectId },
     Move { source_entity: Entity },
 }
 
 #[derive(Component, Debug, Clone)]
 pub struct PlacementPreview {
-    pub validation: Option<Result<(), PlacementInvalidReason>>,
+    pub validation: Option<Result<(), String>>,
 }
 
-/// Attached to the original gameplay entity during a Move operation.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PreviewSource {
     pub preview_entity: Entity,
 }
 
-pub struct ToolPreviewPlugin;
-
-impl Plugin for ToolPreviewPlugin {
-    fn build(&self, _app: &mut App) {
-        // Future systems for automated preview cleanup or visual updates can be added here
-    }
-}
+#[derive(Component, Debug, Clone, Copy)]
+pub struct NonInteractive;

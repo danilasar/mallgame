@@ -19,6 +19,7 @@ pub struct WorldBounds {
 }
 
 impl WorldBounds {
+    #[allow(dead_code)]
     pub fn contains_chunk(&self, coord: StoreChunkCoord) -> bool {
         let size = Vec2::splat(128.0);
         let min = Vec2::new(coord.x as f32 * size.x, coord.y as f32 * size.y);
@@ -52,6 +53,7 @@ impl Default for CoverageSamplingOptions {
 
 pub enum CoverageFailureReason {
     PointOutsideOwnedArea,
+    #[allow(dead_code)]
     EmptyPolygon,
 }
 
@@ -188,6 +190,7 @@ impl StoreArea {
         true
     }
 
+    #[allow(dead_code)]
     pub fn owned_chunk_bounds(&self) -> Option<StoreChunkBounds> {
         owned_bounds(&self.owned_chunks)
     }

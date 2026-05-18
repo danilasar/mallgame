@@ -7,7 +7,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `InputActions` snapshot physical keyboard/mouse input into gameplay actions.
 - `ToolInputGate` converts input, pointer ownership, and modal/UI blocking into safe tool signals.
 - `ToolRuntime` owns active tool mode and unfinished tool sessions.
-- `UiRuntime` owns right dock, bottom build panel, modal stack, camera controls, and world widgets.
+- `UiRuntime` owns right dock, ribbon, modal stack, camera controls, and world widgets.
 - `Domain systems` mutate gameplay truth via validated `DomainCommands`.
 - `Presentation` derives overlays, highlights, transforms, and depth.
 
@@ -32,7 +32,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `src/main.rs`: app setup and plugin order.
 - `src/input`: raw input, pointer conversion, drag state, and picking.
 - `src/tools`: tool modes, pointer gate, sessions, previews, and tool-specific systems.
-- `src/ui`: UI layers, modals, right dock, build panel, camera controls, world widgets, and object inspector.
+- `src/ui`: UI layers, modals, right dock, ribbon, camera controls, world widgets, and object inspector.
 - `src/store`: world bounds, store chunks, expansion validation, store overlays, and domain commands/events.
 - `src/placement`: footprint geometry and placement validation.
 - `src/presentation`: projection, transform sync, highlights, and footprint overlays.
@@ -92,9 +92,11 @@ Gameplay mutation authority:
 
 - Tool sessions are preview-based for build and move.
 - Selection and a real `ObjectInspector` are implemented.
+- The active build selection surface is the Ribbon; build-panel terminology is obsolete in the current codebase.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
 - Domain mutations are unified behind the `DomainCommand` system.
+- Load/reset should clear UI/tool runtime state, including ribbon/build selection, not only gameplay sessions.
 
 ## Store Rules
 

@@ -2,7 +2,9 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
 use crate::objects::components::{InteractionRole, RuntimeOwned, RuntimeOwner, WorldPos};
-use crate::objects::prototypes::{BuildPrototypeId, BuildPrototypes, spawn_ghost_from_prototype};
+use crate::objects::prototypes::{
+    BuildSelectionState, ObjectCatalog, SelectBuildPrototypeRequested, spawn_ghost_from_prototype,
+};
 use crate::tools::{
     ActivateToolRequested, ActiveToolSession, BuildObjectRequested, BuildToolSession,
     NonInteractive, PlacementPreview, ToolActivationKind, ToolContext, ToolDescriptor,
@@ -22,13 +24,14 @@ impl Plugin for BuildToolPlugin {
                 label: "Build",
             });
 
-        app.add_message::<SelectBuildObjectRequested>()
+        app.init_resource::<BuildSelectionState>()
+            .add_message::<SelectBuildPrototypeRequested>()
             .add_systems(OnEnter(ToolMode::Build), start_build_session)
             .add_systems(OnExit(ToolMode::Build), cleanup_build_session)
             .add_systems(
                 Update,
                 (
-                    apply_select_build_object_requests,
+                    apply_select_build_prototype_requests,
                     build_tool_system.run_if(in_state(ToolMode::Build)),
                 )
                     .chain()
@@ -37,23 +40,28 @@ impl Plugin for BuildToolPlugin {
     }
 }
 
-#[derive(Message, Debug, Clone, Copy)]
-pub struct SelectBuildObjectRequested {
-    pub prototype: BuildPrototypeId,
-}
-
-fn apply_select_build_object_requests(
+fn apply_select_build_prototype_requests(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    catalog: Res<ObjectCatalog>,
     pointer: Res<PointerContext>,
     current_mode: Res<State<ToolMode>>,
-    mut requests: MessageReader<SelectBuildObjectRequested>,
-    mut prototypes: ResMut<BuildPrototypes>,
+    mut requests: MessageReader<SelectBuildPrototypeRequested>,
+    mut selection: ResMut<BuildSelectionState>,
     mut activation: MessageWriter<ActivateToolRequested>,
     mut session: ResMut<ToolSessionState>,
 ) {
     for request in requests.read() {
-        prototypes.active = request.prototype;
+        if !catalog.prototypes.contains_key(&request.prototype_id) {
+            warn!(
+                "Request to select unknown prototype: {:?}",
+                request.prototype_id
+            );
+            continue;
+        }
+
+        selection.selected_prototype_id = Some(request.prototype_id.clone());
+
         if *current_mode.get() == ToolMode::Build {
             crate::tools::cleanup_current_session(
                 &mut commands,
@@ -63,7 +71,8 @@ fn apply_select_build_object_requests(
             spawn_build_session(
                 &mut commands,
                 &asset_server,
-                &prototypes,
+                &catalog,
+                &selection,
                 &pointer,
                 &mut session,
             );
@@ -79,14 +88,16 @@ fn apply_select_build_object_requests(
 fn start_build_session(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    prototypes: Res<BuildPrototypes>,
+    catalog: Res<ObjectCatalog>,
+    selection: Res<BuildSelectionState>,
     pointer: Res<PointerContext>,
     mut session: ResMut<ToolSessionState>,
 ) {
     spawn_build_session(
         &mut commands,
         &asset_server,
-        &prototypes,
+        &catalog,
+        &selection,
         &pointer,
         &mut session,
     );
@@ -95,18 +106,31 @@ fn start_build_session(
 fn spawn_build_session(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    prototypes: &BuildPrototypes,
+    catalog: &ObjectCatalog,
+    selection: &BuildSelectionState,
     pointer: &PointerContext,
     session: &mut ToolSessionState,
 ) {
-    let preview_entity =
-        spawn_ghost_from_prototype(commands, asset_server, prototypes.active, pointer.world_pos);
+    let Some(prototype_id) = selection.selected_prototype_id.clone() else {
+        warn!("Cannot start build session: no prototype selected");
+        return;
+    };
 
-    // Convert old ghost to new preview system
+    let Some(proto) = catalog.prototypes.get(&prototype_id) else {
+        warn!(
+            "Cannot start build session: unknown prototype {:?}",
+            prototype_id
+        );
+        return;
+    };
+
+    let preview_entity =
+        spawn_ghost_from_prototype(commands, asset_server, proto, pointer.world_pos);
+
     commands.entity(preview_entity).insert((
         ToolPreview,
         ToolPreviewKind::Build {
-            prototype_id: prototypes.active,
+            prototype_id: prototype_id.clone(),
         },
         PlacementPreview { validation: None },
         NonInteractive,
@@ -117,7 +141,7 @@ fn spawn_build_session(
     ));
 
     session.active = Some(ActiveToolSession::Build(BuildToolSession {
-        prototype_id: prototypes.active,
+        prototype_id,
         preview_entity,
         rotation_index: 0,
         awaiting_fresh_click: true,
@@ -174,7 +198,7 @@ pub fn build_tool_system(
 
         if gate.primary_world_click_released && !build_session.awaiting_fresh_click {
             builds.write(BuildObjectRequested {
-                prototype: build_session.prototype_id,
+                prototype: build_session.prototype_id.clone(),
                 pos: pointer.world_pos,
                 rotation: build_session.rotation_index,
             });

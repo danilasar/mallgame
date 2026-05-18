@@ -1,9 +1,6 @@
 use bevy::prelude::*;
 
-use crate::store::{
-    StoreArea, StoreChunkCoord, StoreChunkData, StoreChunkKind, WorldBounds, side_neighbors,
-    owned_bounds,
-};
+use crate::store::{StoreArea, StoreChunkCoord, WorldBounds, owned_bounds, side_neighbors};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -18,6 +15,7 @@ pub enum StoreChunkPurchaseRejectReason {
 #[derive(Debug, Clone, Copy)]
 pub struct ChunkPurchaseValidation {
     pub valid: bool,
+    #[allow(dead_code)]
     pub reason: Option<StoreChunkPurchaseRejectReason>,
 }
 
@@ -55,16 +53,24 @@ pub fn validate_chunk_purchase(
     if let Some(bounds) = owned_bounds(&store.owned_chunks) {
         let policy = store.expansion_policy;
         if !policy.allow_right && coord.x > bounds.max.x {
-            return ChunkPurchaseValidation::reject(StoreChunkPurchaseRejectReason::DirectionNotAllowed);
+            return ChunkPurchaseValidation::reject(
+                StoreChunkPurchaseRejectReason::DirectionNotAllowed,
+            );
         }
         if !policy.allow_up && coord.y > bounds.max.y {
-            return ChunkPurchaseValidation::reject(StoreChunkPurchaseRejectReason::DirectionNotAllowed);
+            return ChunkPurchaseValidation::reject(
+                StoreChunkPurchaseRejectReason::DirectionNotAllowed,
+            );
         }
         if !policy.allow_left && coord.x < bounds.min.x {
-            return ChunkPurchaseValidation::reject(StoreChunkPurchaseRejectReason::DirectionNotAllowed);
+            return ChunkPurchaseValidation::reject(
+                StoreChunkPurchaseRejectReason::DirectionNotAllowed,
+            );
         }
         if !policy.allow_down && coord.y < bounds.min.y {
-            return ChunkPurchaseValidation::reject(StoreChunkPurchaseRejectReason::DirectionNotAllowed);
+            return ChunkPurchaseValidation::reject(
+                StoreChunkPurchaseRejectReason::DirectionNotAllowed,
+            );
         }
     }
 
@@ -91,12 +97,14 @@ pub fn convert_purchase_requests_to_commands(
     mut queue: ResMut<crate::store::commands::DomainCommandQueue>,
 ) {
     for event in events.read() {
-        queue.commands.push_back(crate::store::commands::DomainCommand::PurchaseChunk(
-            crate::store::commands::PurchaseChunkCommand {
-                coord: event.coord,
-                kind: event.kind,
-            }
-        ));
+        queue
+            .commands
+            .push_back(crate::store::commands::DomainCommand::PurchaseChunk(
+                crate::store::commands::PurchaseChunkCommand {
+                    coord: event.coord,
+                    kind: event.kind,
+                },
+            ));
     }
 }
 
@@ -116,6 +124,7 @@ pub fn would_create_hole(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::chunks::StoreChunkKind;
 
     #[test]
     fn owned_and_non_adjacent_are_invalid() {
@@ -229,19 +238,19 @@ mod tests {
         // Initial chunks: (-5..-1, -4..-1)
         store.owned_chunks.insert(
             StoreChunkCoord { x: 0, y: -1 },
-            StoreChunkData {
+            crate::store::chunks::StoreChunkData {
                 kind: StoreChunkKind::Default,
             },
         );
         store.owned_chunks.insert(
             StoreChunkCoord { x: 0, y: 0 },
-            StoreChunkData {
+            crate::store::chunks::StoreChunkData {
                 kind: StoreChunkKind::Default,
             },
         );
         store.owned_chunks.insert(
             StoreChunkCoord { x: -1, y: 0 },
-            StoreChunkData {
+            crate::store::chunks::StoreChunkData {
                 kind: StoreChunkKind::Default,
             },
         );
@@ -259,7 +268,7 @@ mod tests {
         ] {
             store.owned_chunks.insert(
                 coord,
-                StoreChunkData {
+                crate::store::chunks::StoreChunkData {
                     kind: StoreChunkKind::Default,
                 },
             );
@@ -298,7 +307,7 @@ mod tests {
         // Apply it
         store.owned_chunks.insert(
             coord1,
-            StoreChunkData {
+            crate::store::chunks::StoreChunkData {
                 kind: StoreChunkKind::Default,
             },
         );

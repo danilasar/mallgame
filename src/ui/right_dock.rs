@@ -3,7 +3,9 @@ use bevy::prelude::*;
 use crate::objects::components::{Deletable, Movable};
 use crate::objects::rotation::Rotatable;
 use crate::tools::{SelectionState, ToolChangedRequested, ToolMode};
-use crate::ui::inspector::{auto_open_inspector_system, inspector_button_system, render_object_inspector};
+use crate::ui::inspector::{
+    auto_open_inspector_system, inspector_button_system, render_object_inspector,
+};
 use crate::ui::{
     ActiveInterfacePanel, BlocksWorldInput, InterfacePanelId, RightDockLayer, UiSet, UiWindowStack,
     WindowLayer,
@@ -135,7 +137,12 @@ fn render_active_interface_panel(
     fonts: Res<UiFonts>,
     layer: Query<Entity, With<WindowLayer>>,
     existing: Query<Entity, With<InterfacePanelContent>>,
-    objects: Query<(Option<&Name>, Option<&Movable>, Option<&Rotatable>, Option<&Deletable>)>,
+    objects: Query<(
+        Option<&Name>,
+        Option<&Movable>,
+        Option<&Rotatable>,
+        Option<&Deletable>,
+    )>,
 ) {
     if !active.is_changed() && !selection.is_changed() && !tool_mode.is_changed() {
         return;
@@ -207,7 +214,14 @@ fn render_active_interface_panel(
                 .with_child(label_text("Debug", &fonts));
         }
         InterfacePanelId::ObjectInspector => {
-            render_object_inspector(&mut commands, content, &selection, &fonts, *tool_mode.get(), objects);
+            render_object_inspector(
+                &mut commands,
+                content,
+                &selection,
+                &fonts,
+                *tool_mode.get(),
+                objects,
+            );
         }
         InterfacePanelId::Settings => {
             commands

@@ -25,7 +25,6 @@ fn main() {
         .init_resource::<PointerContext>()
         .init_resource::<PointerTargets>()
         .init_resource::<PointerDragState>()
-        .init_resource::<BuildPrototypes>()
         .init_resource::<DomainCommandQueue>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -41,7 +40,7 @@ fn main() {
         .add_plugins((
             UiCorePlugin,
             RightDockUiPlugin,
-            BottomBuildPanelPlugin,
+            BuildRibbonPlugin,
             CameraControlsUiPlugin,
             ModalUiPlugin,
             WorldWidgetUiPlugin,
@@ -76,7 +75,7 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(Startup, setup)
+        .add_systems(Startup, (setup_object_catalog, setup).chain())
         .add_systems(
             PreUpdate,
             (
@@ -134,7 +133,7 @@ fn main() {
             )
                 .chain(),
         );
-    
+
     app.add_message::<crate::store::events::DomainEvent>();
     app.add_message::<crate::store::commands::DomainCommandRejected>();
 
@@ -144,39 +143,29 @@ fn main() {
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    catalog: Res<ObjectCatalog>,
     mut allocator: ResMut<StableObjectIdAllocator>,
 ) {
     commands.spawn(Camera2d);
     let _sort_layers = SortLayer::ALL;
 
-    spawn_store_object_from_prototype(
-        &mut commands,
-        &asset_server,
-        SpawnStoreObjectParams {
-            stable_id: allocator.allocate(),
-            prototype_id: BuildPrototypeId::Chair,
-            world_pos: Vec2::new(-180.0, -20.0),
-            rotation_index: Some(0),
-        },
-    );
-    spawn_store_object_from_prototype(
-        &mut commands,
-        &asset_server,
-        SpawnStoreObjectParams {
-            stable_id: allocator.allocate(),
-            prototype_id: BuildPrototypeId::Table,
-            world_pos: Vec2::new(80.0, -40.0),
-            rotation_index: Some(0),
-        },
-    );
-    spawn_store_object_from_prototype(
-        &mut commands,
-        &asset_server,
-        SpawnStoreObjectParams {
-            stable_id: allocator.allocate(),
-            prototype_id: BuildPrototypeId::Tree,
-            world_pos: Vec2::new(140.0, 130.0),
-            rotation_index: Some(0),
-        },
-    );
+    let prototypes = [
+        ("fixture.shelf.basic", Vec2::new(-180.0, -20.0)),
+        ("service.checkout.basic", Vec2::new(80.0, -40.0)),
+        ("decor.plant.tree", Vec2::new(140.0, 130.0)),
+    ];
+
+    for (proto_id, pos) in prototypes {
+        let _ = spawn_store_object_from_prototype(
+            &mut commands,
+            &asset_server,
+            &catalog,
+            SpawnStoreObjectParams {
+                stable_id: allocator.allocate(),
+                prototype_id: BuildObjectId::new(proto_id),
+                world_pos: pos,
+                rotation_index: Some(0),
+            },
+        );
+    }
 }

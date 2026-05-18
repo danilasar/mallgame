@@ -1,35 +1,35 @@
-use bevy::prelude::*;
-use crate::store::StoreArea;
-use crate::objects::components::{ObjectStableId, ObjectPrototypeId, WorldPos, StoreObject, StableObjectIdAllocator};
+use crate::objects::components::{
+    ObjectPrototypeId, ObjectStableId, StableObjectIdAllocator, StoreObject, WorldPos,
+};
 use crate::objects::rotation::Rotatable;
-use crate::tools::ToolPreview;
 use crate::save::types::*;
+use crate::store::StoreArea;
+use crate::tools::ToolPreview;
+use bevy::prelude::*;
 
 pub fn extract_save_game(
     store: &StoreArea,
     allocator: &StableObjectIdAllocator,
-    objects_query: &Query<(
-        &ObjectStableId,
-        &ObjectPrototypeId,
-        &WorldPos,
-        Option<&Rotatable>,
-    ), (
-        With<StoreObject>,
-        Without<ToolPreview>,
-    )>,
+    objects_query: &Query<
+        (
+            &ObjectStableId,
+            &ObjectPrototypeId,
+            &WorldPos,
+            Option<&Rotatable>,
+        ),
+        (With<StoreObject>, Without<ToolPreview>),
+    >,
 ) -> SaveGame {
     let mut saved_objects: Vec<ObjectSave> = objects_query
         .iter()
-        .map(|(stable_id, proto_id, pos, rotatable)| {
-            ObjectSave {
-                id: stable_id.0,
-                prototype_id: proto_id.0,
-                world_pos: WorldPosSave {
-                    x: pos.0.x,
-                    y: pos.0.y,
-                },
-                rotation_index: rotatable.map(|r| r.current),
-            }
+        .map(|(stable_id, proto_id, pos, rotatable)| ObjectSave {
+            id: stable_id.0,
+            prototype_id: proto_id.0.clone(),
+            world_pos: WorldPosSave {
+                x: pos.0.x,
+                y: pos.0.y,
+            },
+            rotation_index: rotatable.map(|r| r.current),
         })
         .collect();
 

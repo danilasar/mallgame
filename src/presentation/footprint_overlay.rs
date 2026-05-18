@@ -50,7 +50,7 @@ pub fn update_footprint_outline_overlay(
 
     // 2. If no active session, show outline on hover ONLY in Move mode (to indicate pickability)
     let hover_target = if preview_target.is_none() && *mode.get() == ToolMode::Move {
-        tool.hovered_object
+        tool.hovered_entity
     } else {
         None
     };

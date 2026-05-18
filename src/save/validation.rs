@@ -1,13 +1,13 @@
-use bevy::prelude::*;
-use crate::save::types::*;
-use crate::objects::prototypes::BuildPrototypeId;
-use crate::store::{StoreChunkCoord, WorldBounds};
 use crate::objects::components::StableObjectId;
+use crate::objects::prototypes::BuildObjectId;
+use crate::save::types::*;
+use crate::store::{StoreChunkCoord, WorldBounds};
+use bevy::prelude::*;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum LoadIssue {
-    UnknownPrototype(BuildPrototypeId),
+    UnknownPrototype(BuildObjectId),
     InvalidRotationIndex {
         object_id: StableObjectId,
         rotation_index: usize,

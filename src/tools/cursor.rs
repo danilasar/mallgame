@@ -47,7 +47,7 @@ pub fn cursor_tool_system(
 
     if gate.primary_world_click_released {
         if let Some(entity) = tool
-            .hovered_object
+            .hovered_entity
             .filter(|entity| interactive.get(*entity).is_ok())
         {
             actions.write(ObjectActionRequested {

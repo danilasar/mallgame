@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use serde::{Deserialize, Serialize};
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StoreChunkCoord {
@@ -20,6 +20,7 @@ pub struct StoreChunkData {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct StoreExpansionPolicy {
     pub allow_left: bool,
     pub allow_right: bool,

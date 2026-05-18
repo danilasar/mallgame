@@ -26,8 +26,10 @@ This repository is a Rust + Bevy 2D isometric prototype with a strict ECS split:
 - `ToolPreview`, `PlacementPreview`, `PreviewSource`, `RuntimeOwned`, and `InteractionRole` are real transient/runtime components.
 - `StoreArea` owns bought `4x4` chunks; `WorldBounds` owns the outer world.
 - `StoreArea::contains_polygon_sampled` is sampled coverage, not exact polygon clipping.
-- The bottom build panel is UI surface; it must emit requests instead of mutating gameplay state directly.
-- The right dock is interface switching UI, not gameplay logic.
+- The Ribbon is the active build selection surface; `BuildSelectionState` is the tool-config source of truth for the chosen prototype.
+- The old bottom build panel terminology is obsolete; build selection now lives in the Ribbon and the inspector/right dock surfaces.
+- The right dock is interface switching UI and the inspector surface, not gameplay logic.
+- Load/reset code must clear runtime UI/tool state as well as gameplay sessions; do not leave Ribbon or selection state behind after restore.
 
 ## Documentation
 
@@ -47,4 +49,3 @@ This repository is a Rust + Bevy 2D isometric prototype with a strict ECS split:
 - Do not add hidden coupling between UI and world mutation.
 - Do not make overlays selectable or interactive.
 - Do not make store expansion a normal object prototype.
-

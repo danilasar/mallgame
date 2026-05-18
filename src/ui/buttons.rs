@@ -42,7 +42,12 @@ pub fn label_text(label: impl Into<String>, fonts: &UiFonts) -> impl Bundle {
     )
 }
 
-pub fn ui_text(label: impl Into<String>, font_size: f32, color: Color, fonts: &UiFonts) -> impl Bundle {
+pub fn ui_text(
+    label: impl Into<String>,
+    font_size: f32,
+    color: Color,
+    fonts: &UiFonts,
+) -> impl Bundle {
     (
         Text::new(label),
         TextFont {

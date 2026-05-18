@@ -6,7 +6,8 @@ impl Plugin for ObjectRotationPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<RotateObjectRequested>().add_systems(
             Update,
-            handle_rotate_requests.in_set(crate::store::commands::DomainCommandSet::RequestToCommand),
+            handle_rotate_requests
+                .in_set(crate::store::commands::DomainCommandSet::RequestToCommand),
         );
     }
 }
@@ -40,12 +41,15 @@ pub fn handle_rotate_requests(
         &crate::objects::components::ObjectStableId,
         Option<&crate::tools::PreviewSource>,
     )>,
-    mut preview_query: Query<(
-        &mut Sprite,
-        &mut crate::objects::components::Footprint,
-        &mut crate::objects::components::FootAnchor,
-        &mut crate::objects::components::VisualOffset,
-    ), (With<crate::tools::ToolPreview>, Without<Rotatable>)>,
+    mut preview_query: Query<
+        (
+            &mut Sprite,
+            &mut crate::objects::components::Footprint,
+            &mut crate::objects::components::FootAnchor,
+            &mut crate::objects::components::VisualOffset,
+        ),
+        (With<crate::tools::ToolPreview>, Without<Rotatable>),
+    >,
 ) {
     for request in requests.read() {
         let Ok((rotatable, stable_id, preview_source)) = query.get(request.entity) else {
@@ -63,30 +67,35 @@ pub fn handle_rotate_requests(
 
         if let Some(source) = preview_source {
             // Preview rotation remains immediate for responsive UI
-            if let Ok((mut p_sprite, mut p_fp, mut p_anchor, mut p_offset)) = preview_query.get_mut(source.preview_entity) {
+            if let Ok((mut p_sprite, mut p_fp, mut p_anchor, mut p_offset)) =
+                preview_query.get_mut(source.preview_entity)
+            {
                 p_sprite.image = variant.sprite;
                 *p_fp = variant.footprint;
                 p_anchor.0 = variant.foot_anchor;
                 p_offset.0 = variant.visual_offset;
             }
-            
+
             // Update session state so commit uses the new rotation
             if let Some(crate::tools::ActiveToolSession::Move(s)) = session.active.as_mut() {
                 if s.source_entity == request.entity {
                     s.rotation_index = new_index;
                 }
-            } else if let Some(crate::tools::ActiveToolSession::Build(s)) = session.active.as_mut() {
+            } else if let Some(crate::tools::ActiveToolSession::Build(s)) = session.active.as_mut()
+            {
                 s.rotation_index = new_index;
             }
         } else {
             // Real rotation goes through command queue
-            queue.commands.push_back(crate::store::commands::DomainCommand::RotateObject(
-                crate::store::commands::RotateObjectCommand {
-                    object_id: stable_id.0,
-                    from_rotation: rotatable.current,
-                    to_rotation: new_index,
-                }
-            ));
+            queue
+                .commands
+                .push_back(crate::store::commands::DomainCommand::RotateObject(
+                    crate::store::commands::RotateObjectCommand {
+                        object_id: stable_id.0,
+                        from_rotation: rotatable.current,
+                        to_rotation: new_index,
+                    },
+                ));
         }
     }
 }

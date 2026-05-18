@@ -2,8 +2,8 @@ use bevy::prelude::*;
 
 use crate::input::PointerContext;
 use crate::objects::components::*;
-use crate::tools::NonInteractive;
 use crate::presentation::{IsoProjection, world_to_iso};
+use crate::tools::NonInteractive;
 
 #[derive(Resource, Default, Debug)]
 pub struct PointerTargets {

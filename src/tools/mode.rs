@@ -1,19 +1,20 @@
+use crate::input::InputAction;
 use bevy::prelude::*;
 
-use crate::input::{InputAction, InputActionState};
-use crate::tools::ToolChangedRequested;
-
-#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, States)]
 pub enum ToolMode {
     #[default]
     Cursor,
     Move,
+    #[allow(dead_code)]
+    Rotate,
     Delete,
     Build,
     Expansion,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct ToolDescriptor {
     pub mode: ToolMode,
     pub action: InputAction,
@@ -27,29 +28,27 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     pub fn register(&mut self, descriptor: ToolDescriptor) {
-        self.tools.retain(|tool| tool.mode != descriptor.mode);
-        self.tools.push(descriptor);
-    }
-}
-
-pub fn tool_hotkeys_system(
-    actions: Res<InputActionState>,
-    registry: Res<ToolRegistry>,
-    mut next: ResMut<NextState<ToolMode>>,
-    mut changed: MessageWriter<ToolChangedRequested>,
-) {
-    for tool in &registry.tools {
-        if actions.just_pressed(tool.action) {
-            info!("Tool hotkey requested: {}", tool.label);
-            changed.write(ToolChangedRequested { mode: tool.mode });
-            next.set(tool.mode);
-            break;
+        if !self.tools.iter().any(|t| t.mode == descriptor.mode) {
+            self.tools.push(descriptor);
         }
     }
 }
 
-pub fn log_tool_changed_requests(mut changed: MessageReader<ToolChangedRequested>) {
-    for request in changed.read() {
-        info!("ToolChangedRequested mode={:?}", request.mode);
+#[allow(dead_code)]
+pub fn tool_hotkeys_system(
+    actions: Res<crate::input::InputActionState>,
+    mut next_mode: ResMut<NextState<ToolMode>>,
+) {
+    if actions.just_pressed(InputAction::ToolCursor) {
+        next_mode.set(ToolMode::Cursor);
+    }
+    if actions.just_pressed(InputAction::ToolBuild) {
+        next_mode.set(ToolMode::Build);
+    }
+}
+
+pub fn log_tool_changed_requests(mut events: MessageReader<crate::tools::ToolChangedRequested>) {
+    for event in events.read() {
+        info!("ToolChangedRequested mode={:?}", event.mode);
     }
 }

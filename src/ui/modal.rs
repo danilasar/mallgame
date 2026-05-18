@@ -110,8 +110,10 @@ pub fn apply_modal_requests(
     existing: Query<(), With<crate::objects::components::WorldPos>>,
 ) {
     for request in requests.read() {
+        info!("Received ModalRequest: {:?}", request);
         match *request {
             ModalRequest::Open(kind) => {
+                info!("Opening modal of kind: {:?}", kind);
                 let id = ModalId(stack.next_id);
                 stack.next_id += 1;
                 stack.stack.push(ModalInstance {
@@ -154,14 +156,21 @@ fn render_modal_stack(
         return;
     }
 
+    info!("Rendering modal stack: {} items", stack.stack.len());
+
     for entity in &visuals {
         commands.entity(entity).despawn();
     }
 
     let Some(instance) = stack.stack.last() else {
+        info!("Modal stack is empty, clearing visuals");
         return;
     };
+
+    info!("Displaying modal of kind: {:?}", instance.kind);
+
     let Some(layer) = layer.iter().next() else {
+        error!("ModalLayer not found!");
         return;
     };
 

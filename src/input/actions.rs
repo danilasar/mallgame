@@ -58,7 +58,10 @@ impl Default for InputBindings {
         bindings.insert(InputAction::ToolMove, InputBinding::Key(KeyCode::Digit2));
         bindings.insert(InputAction::ToolDelete, InputBinding::Key(KeyCode::Digit3));
         bindings.insert(InputAction::ToolBuild, InputBinding::Key(KeyCode::Digit4));
-        bindings.insert(InputAction::PrimaryClick, InputBinding::Mouse(MouseButton::Left));
+        bindings.insert(
+            InputAction::PrimaryClick,
+            InputBinding::Mouse(MouseButton::Left),
+        );
         bindings.insert(
             InputAction::SecondaryClick,
             InputBinding::Mouse(MouseButton::Right),
@@ -69,8 +72,14 @@ impl Default for InputBindings {
         bindings.insert(InputAction::QuickSave, InputBinding::Key(KeyCode::F5));
         bindings.insert(InputAction::QuickLoad, InputBinding::Key(KeyCode::F8));
         bindings.insert(InputAction::CameraZoomIn, InputBinding::Key(KeyCode::Equal));
-        bindings.insert(InputAction::CameraZoomOut, InputBinding::Key(KeyCode::Minus));
-        bindings.insert(InputAction::ToggleFullscreen, InputBinding::Key(KeyCode::F11));
+        bindings.insert(
+            InputAction::CameraZoomOut,
+            InputBinding::Key(KeyCode::Minus),
+        );
+        bindings.insert(
+            InputAction::ToggleFullscreen,
+            InputBinding::Key(KeyCode::F11),
+        );
         bindings.insert(
             InputAction::PrintDebugPositions,
             InputBinding::Key(KeyCode::F1),

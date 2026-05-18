@@ -1,19 +1,19 @@
-pub mod types;
 pub mod extract;
-pub mod load;
 pub mod io;
+pub mod load;
+pub mod types;
 pub mod validation;
 
-use bevy::prelude::*;
-use bevy::ecs::system::SystemParam;
-use crate::store::{StoreArea, WorldBounds};
-use crate::objects::components::{StoreObject, StableObjectIdAllocator};
-use crate::tools::ToolSessionState;
-use crate::save::validation::SaveLoadLimits;
-use crate::save::extract::extract_save_game;
-use crate::save::load::{build_load_plan, apply_load_plan, reset_runtime_for_load};
-use crate::save::io::{write_save_file_atomic, read_save_file};
 use crate::input::{InputAction, InputActionState};
+use crate::objects::components::{StableObjectIdAllocator, StoreObject};
+use crate::save::extract::extract_save_game;
+use crate::save::io::{read_save_file, write_save_file_atomic};
+use crate::save::load::{apply_load_plan, build_load_plan, reset_runtime_for_load};
+use crate::save::validation::SaveLoadLimits;
+use crate::store::{StoreArea, WorldBounds};
+use crate::tools::ToolSessionState;
+use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
 #[derive(Message, Debug, Clone, Copy)]
 pub struct QuickSaveRequested;
@@ -28,11 +28,14 @@ impl Plugin for SaveLoadPlugin {
         app.add_message::<QuickSaveRequested>()
             .add_message::<QuickLoadRequested>()
             .init_resource::<SaveLoadLimits>()
-            .add_systems(Update, (
-                save_load_hotkey_system,
-                handle_quick_save.in_set(crate::tools::ToolSet::Commit),
-                handle_quick_load.in_set(crate::tools::ToolSet::Commit),
-            ));
+            .add_systems(
+                Update,
+                (
+                    save_load_hotkey_system,
+                    handle_quick_save.in_set(crate::tools::ToolSet::Commit),
+                    handle_quick_load.in_set(crate::tools::ToolSet::Commit),
+                ),
+            );
     }
 }
 
@@ -53,15 +56,15 @@ fn handle_quick_save(
     mut events: MessageReader<QuickSaveRequested>,
     store: Res<StoreArea>,
     allocator: Res<StableObjectIdAllocator>,
-    objects_query: Query<(
-        &crate::objects::components::ObjectStableId,
-        &crate::objects::components::ObjectPrototypeId,
-        &crate::objects::components::WorldPos,
-        Option<&crate::objects::rotation::Rotatable>,
-    ), (
-        With<StoreObject>,
-        Without<crate::tools::ToolPreview>,
-    )>,
+    objects_query: Query<
+        (
+            &crate::objects::components::ObjectStableId,
+            &crate::objects::components::ObjectPrototypeId,
+            &crate::objects::components::WorldPos,
+            Option<&crate::objects::rotation::Rotatable>,
+        ),
+        (With<StoreObject>, Without<crate::tools::ToolPreview>),
+    >,
 ) {
     for _ in events.read() {
         let save = extract_save_game(&store, &allocator, &objects_query);
@@ -80,12 +83,17 @@ struct QuickLoadParams<'w, 's> {
     asset_server: Res<'w, AssetServer>,
     store: ResMut<'w, StoreArea>,
     allocator: ResMut<'w, StableObjectIdAllocator>,
-    prototypes: Res<'w, crate::objects::prototypes::BuildPrototypes>,
+    catalog: Res<'w, crate::objects::prototypes::ObjectCatalog>,
     existing_objects: Query<'w, 's, Entity, With<StoreObject>>,
     session: ResMut<'w, ToolSessionState>,
     return_state: ResMut<'w, crate::tools::ToolReturnState>,
     next_mode: ResMut<'w, NextState<crate::tools::ToolMode>>,
     selection: ResMut<'w, crate::tools::SelectionState>,
+    build_selection: ResMut<'w, crate::objects::prototypes::BuildSelectionState>,
+    ribbon_state: ResMut<'w, crate::ui::RibbonState>,
+    ui_runtime: ResMut<'w, crate::ui::UiRuntime>,
+    active_panel: ResMut<'w, crate::ui::ActiveInterfacePanel>,
+    window_stack: ResMut<'w, crate::ui::UiWindowStack>,
     modal_stack: ResMut<'w, crate::ui::ModalStack>,
     targets: ResMut<'w, crate::input::PointerTargets>,
     cycle: ResMut<'w, crate::tools::PrimaryPointerCycle>,
@@ -95,49 +103,53 @@ struct QuickLoadParams<'w, 's> {
     runtime_owned: Query<'w, 's, Entity, With<crate::objects::components::RuntimeOwned>>,
 }
 
-fn handle_quick_load(
-    mut events: MessageReader<QuickLoadRequested>,
-    mut p: QuickLoadParams,
-) {
+fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: QuickLoadParams) {
     for _ in events.read() {
         match read_save_file("quicksave.json") {
-            Ok(save) => {
-                match build_load_plan(save, p.limits.as_ref(), p.world_bounds.as_ref()) {
-                    Ok(plan) => {
-                        info!("Applying load plan: {} chunks, {} objects", plan.valid_chunks.len(), plan.object_plans.len());
-                        
-                        reset_runtime_for_load(
-                            &mut p.commands,
-                            &mut p.session,
-                            &mut p.return_state,
-                            &mut p.next_mode,
-                            &mut p.selection,
-                            &mut p.modal_stack,
-                            &mut p.targets,
-                            &mut p.cycle,
-                            p.gate,
-                            p.drag,
-                            p.command_queue,
-                            &p.runtime_owned,
-                        );
-                        
-                        let report = apply_load_plan(
-                            &mut p.commands,
-                            &p.asset_server,
-                            &mut p.store,
-                            &mut p.allocator,
-                            &p.prototypes,
-                            &p.existing_objects,
-                            plan,
-                        );
-                        
-                        info!("QuickLoad successful: {:?}", report);
-                    }
-                    Err(e) => error!("Load validation failed: {:?}", e),
+            Ok(save) => match build_load_plan(save, p.limits.as_ref(), p.world_bounds.as_ref()) {
+                Ok(plan) => {
+                    info!(
+                        "Applying load plan: {} chunks, {} objects",
+                        plan.valid_chunks.len(),
+                        plan.object_plans.len()
+                    );
+
+                    reset_runtime_for_load(
+                        &mut p.commands,
+                        &mut p.session,
+                        &mut p.return_state,
+                        &mut p.next_mode,
+                        &mut p.selection,
+                        &mut p.build_selection,
+                        &mut p.ribbon_state,
+                        &mut p.ui_runtime,
+                        &mut p.active_panel,
+                        &mut p.window_stack,
+                        &mut p.modal_stack,
+                        &mut p.targets,
+                        &mut p.cycle,
+                        &mut p.gate,
+                        &mut p.drag,
+                        &mut p.command_queue,
+                        &p.runtime_owned,
+                    );
+
+                    let report = apply_load_plan(
+                        &mut p.commands,
+                        &p.asset_server,
+                        &mut p.store,
+                        &mut p.allocator,
+                        &p.catalog,
+                        &p.existing_objects,
+                        plan,
+                    );
+
+                    info!("QuickLoad successful: {:?}", report);
                 }
-            }
+                Err(e) => error!("Load validation failed: {:?}", e),
+            },
             Err(e) => error!("QuickLoad failed: {}", e),
         }
-        break; 
+        break;
     }
 }

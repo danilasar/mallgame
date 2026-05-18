@@ -44,7 +44,10 @@ pub fn delete_tool_system(
     }
 
     if gate.primary_world_click_released {
-        if let Some(entity) = tool.hovered_object.filter(|entity| deletable.get(*entity).is_ok()) {
+        if let Some(entity) = tool
+            .hovered_entity
+            .filter(|entity| deletable.get(*entity).is_ok())
+        {
             actions.write(ObjectActionRequested {
                 entity,
                 action: ObjectActionKind::Delete,

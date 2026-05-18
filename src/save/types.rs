@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use crate::store::{StoreChunkCoord, StoreChunkKind};
 use crate::objects::components::StableObjectId;
-use crate::objects::prototypes::BuildPrototypeId;
+use crate::objects::prototypes::BuildObjectId;
+use crate::store::{StoreChunkCoord, StoreChunkKind};
+use serde::{Deserialize, Serialize};
 
 pub type SaveVersion = u32;
 pub const CURRENT_SAVE_VERSION: SaveVersion = 1;
@@ -28,7 +28,7 @@ pub struct StoreChunkSave {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ObjectSave {
     pub id: StableObjectId,
-    pub prototype_id: BuildPrototypeId,
+    pub prototype_id: BuildObjectId,
     pub world_pos: WorldPosSave,
     pub rotation_index: Option<usize>,
 }

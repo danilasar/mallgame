@@ -9,7 +9,6 @@ pub mod validation;
 pub use area::*;
 pub use chunks::*;
 pub use commands::*;
-pub use events::*;
 pub use expansion::*;
 pub use overlay::*;
 pub use validation::*;

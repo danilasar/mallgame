@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::objects::components::StableObjectId;
 use crate::store::chunks::StoreChunkCoord;
+use bevy::prelude::*;
 
 #[derive(Message, Debug, Clone, PartialEq)]
 pub enum DomainEvent {

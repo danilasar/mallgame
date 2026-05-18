@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::prototypes::BuildPrototypeId;
+use super::prototypes::BuildObjectId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StableObjectId(pub u64);
@@ -10,7 +10,7 @@ pub struct StableObjectId(pub u64);
 pub struct ObjectStableId(pub StableObjectId);
 
 #[derive(Component, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ObjectPrototypeId(pub BuildPrototypeId);
+pub struct ObjectPrototypeId(pub BuildObjectId);
 
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct StableObjectIdAllocator {
@@ -109,10 +109,10 @@ pub struct Deletable;
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BuildGhost;
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone)]
 #[allow(dead_code)]
 pub struct GhostOf {
-    pub prototype: BuildPrototypeId,
+    pub prototype: BuildObjectId,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -184,3 +184,38 @@ pub struct RuntimeOwned {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct StoreObject;
+
+// Stage 5A Capabilities
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ProductContainer {
+    pub kind: super::prototypes::ProductContainerKind,
+    pub capacity_class: super::prototypes::ContainerCapacityClass,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct CheckoutPoint {
+    pub kind: super::prototypes::CheckoutKind,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct Decor {
+    pub kind: super::prototypes::DecorKind,
+}
+
+#[derive(Component, Debug, Clone)]
+#[allow(dead_code)]
+pub struct NpcInteractionPoints {
+    pub points: Vec<NpcInteractionPoint>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct NpcInteractionPoint {
+    pub local_pos: Vec2,
+    pub facing: Vec2,
+    pub kind: super::prototypes::NpcInteractionKind,
+}

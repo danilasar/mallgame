@@ -7,8 +7,8 @@ use crate::objects::rotation::Rotatable;
 use crate::placement::{polygon_bounds, world_polygon};
 use crate::presentation::{IsoProjection, sync_visual_transform, world_to_iso};
 use crate::tools::{
-    ActiveToolSession, ObjectActionKind, ObjectActionOrigin, ObjectActionRequested,
-    PointerPressOwner, PrimaryPointerCycle, ToolMode,
+    ObjectActionKind, ObjectActionOrigin, ObjectActionRequested, PointerPressOwner,
+    PrimaryPointerCycle, ToolMode,
 };
 use crate::ui::{
     BlocksWorldInput, UiSet, WorldWidgetsLayer,

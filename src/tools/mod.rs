@@ -7,8 +7,8 @@ pub mod gate;
 pub mod mode;
 pub mod move_tool;
 pub mod preview;
-pub mod session;
 pub mod selection;
+pub mod session;
 
 pub use build::*;
 pub use context::*;
@@ -19,17 +19,19 @@ pub use gate::*;
 pub use mode::*;
 pub use move_tool::*;
 pub use preview::*;
-pub use session::*;
 pub use selection::*;
+pub use session::*;
 
 use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
-use crate::objects::prototypes::BuildPrototypeId;
+use crate::objects::prototypes::BuildObjectId;
 use crate::objects::rotation::RotateObjectRequested;
+use crate::store::commands::{
+    BuildObjectCommand, DeleteObjectCommand, DomainCommand, DomainCommandQueue, MoveObjectCommand,
+};
 use crate::store::{StoreArea, WorldBounds};
-use crate::store::commands::{DomainCommand, DomainCommandQueue, MoveObjectCommand, DeleteObjectCommand, BuildObjectCommand};
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolSet {
@@ -84,7 +86,7 @@ pub fn unified_tool_validation_system(
                     pos.0,
                     crate::placement::PlacementValidationOptions::default(),
                 );
-                preview.validation = Some(result);
+                preview.validation = Some(result.map_err(|e| format!("{:?}", e)));
             }
         }
         ActiveToolSession::Move(move_session) => {
@@ -100,11 +102,23 @@ pub fn unified_tool_validation_system(
                         ignore_entity: Some(move_session.source_entity),
                     },
                 );
-                preview.validation = Some(result);
+                preview.validation = Some(result.map_err(|e| format!("{:?}", e)));
             }
         }
         _ => {}
     }
+}
+
+#[derive(Message, Debug, Clone)]
+pub struct ActivateToolRequested {
+    pub mode: ToolMode,
+    pub kind: ToolActivationKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolActivationKind {
+    Replace,
+    Temporary,
 }
 
 pub fn handle_activate_tool_requested(
@@ -116,10 +130,6 @@ pub fn handle_activate_tool_requested(
     mut return_state: ResMut<ToolReturnState>,
 ) {
     for event in events.read() {
-        if event.mode == *current_mode.get() {
-            continue;
-        }
-
         info!("Activating tool {:?} ({:?})", event.mode, event.kind);
 
         if event.kind == ToolActivationKind::Replace {
@@ -133,6 +143,9 @@ pub fn handle_activate_tool_requested(
         next_mode.set(event.mode);
     }
 }
+
+#[derive(Message, Debug, Clone, Copy)]
+pub struct ReturnToPreviousToolRequested;
 
 pub fn handle_return_to_previous_tool_requested(
     mut commands: Commands,
@@ -167,11 +180,17 @@ pub fn cleanup_current_session(
 
     match active {
         ActiveToolSession::Build(s) => {
-            commands.entity(s.preview_entity).despawn();
+            if let Ok(mut e) = commands.get_entity(s.preview_entity) {
+                e.despawn();
+            }
         }
         ActiveToolSession::Move(s) => {
-            commands.entity(s.preview_entity).despawn();
-            commands.entity(s.source_entity).remove::<PreviewSource>();
+            if let Ok(mut e) = commands.get_entity(s.preview_entity) {
+                e.despawn();
+            }
+            if let Ok(mut e) = commands.get_entity(s.source_entity) {
+                e.remove::<PreviewSource>();
+            }
         }
         ActiveToolSession::Expansion(_) => {}
     }
@@ -269,9 +288,9 @@ pub struct DeleteObjectRequested {
     pub entity: Entity,
 }
 
-#[derive(Message, Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone)]
 pub struct BuildObjectRequested {
-    pub prototype: BuildPrototypeId,
+    pub prototype: BuildObjectId,
     pub pos: Vec2,
     pub rotation: usize,
 }
@@ -298,32 +317,38 @@ pub fn convert_committed_requests_to_commands(
     for movement in moves.read() {
         if let Ok(stable_id) = stable_ids.get(movement.entity) {
             if let Ok(current_pos) = world_positions.get(movement.entity) {
-                queue.commands.push_back(DomainCommand::MoveObject(MoveObjectCommand {
-                    object_id: stable_id.0,
-                    from: current_pos.0,
-                    to: movement.new_pos,
-                    rotation_index: Some(movement.rotation),
-                }));
+                queue
+                    .commands
+                    .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                        object_id: stable_id.0,
+                        from: current_pos.0,
+                        to: movement.new_pos,
+                        rotation_index: Some(movement.rotation),
+                    }));
             }
         }
     }
 
     for delete in deletes.read() {
         if let Ok(stable_id) = stable_ids.get(delete.entity) {
-            queue.commands.push_back(DomainCommand::DeleteObject(DeleteObjectCommand {
-                object_id: stable_id.0,
-            }));
+            queue
+                .commands
+                .push_back(DomainCommand::DeleteObject(DeleteObjectCommand {
+                    object_id: stable_id.0,
+                }));
         }
     }
 
     for build in builds.read() {
         let stable_id = allocator.allocate();
-        queue.commands.push_back(DomainCommand::BuildObject(BuildObjectCommand {
-            object_id: stable_id,
-            prototype_id: build.prototype,
-            world_pos: build.pos,
-            rotation_index: Some(build.rotation),
-        }));
+        queue
+            .commands
+            .push_back(DomainCommand::BuildObject(BuildObjectCommand {
+                object_id: stable_id,
+                prototype_id: build.prototype.clone(),
+                world_pos: build.pos,
+                rotation_index: Some(build.rotation),
+            }));
     }
 }
 
@@ -336,7 +361,7 @@ pub fn handle_domain_event_selection_cleanup(
         if let crate::store::events::DomainEvent::ObjectDeleted { id } = event {
             if let Some(selected_entity) = selection.primary {
                 if let Ok((_, stable_id)) = stable_ids.get(selected_entity) {
-                    if stable_id.0 == *id {
+                    if &stable_id.0 == id {
                         info!("Clearing selection for deleted object {:?}", id);
                         selection.primary = None;
                     }

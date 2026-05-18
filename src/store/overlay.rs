@@ -76,7 +76,7 @@ fn update_store_chunk_overlays(
         if let Some(ActiveToolSession::Expansion(exp)) = &session.active {
             (
                 exp.hovered_coord,
-                exp.hovered_validation.as_ref().map_or(false, |v| v.valid),
+                exp.validation.as_ref().map_or(false, |v| v.valid),
             )
         } else {
             (None, false)

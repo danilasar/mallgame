@@ -2,13 +2,13 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
 use crate::objects::components::{
-    InteractionRole, Movable, ProjectedPos, RuntimeOwned, RuntimeOwner, SortBias, SortLayer,
-    StoreObject, VisualOffset, WorldPos, FootAnchor, Footprint,
+    FootAnchor, Footprint, InteractionRole, Movable, ProjectedPos, RuntimeOwned, RuntimeOwner,
+    SortBias, SortLayer, StoreObject, VisualOffset, WorldPos,
 };
 use crate::tools::{
-    ActiveToolSession, MoveObjectCommitted, NonInteractive, PlacementPreview, PreviewSource,
-    StartMoveObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode, ToolRegistry,
-    ToolSet, ToolSessionState, MoveToolSession, ToolPreview, ToolPreviewKind,
+    ActiveToolSession, MoveObjectCommitted, MoveToolSession, NonInteractive, PlacementPreview,
+    PreviewSource, StartMoveObjectRequested, ToolContext, ToolDescriptor, ToolInputGate, ToolMode,
+    ToolPreview, ToolPreviewKind, ToolRegistry, ToolSessionState, ToolSet,
 };
 
 pub struct MoveToolPlugin;
@@ -26,10 +26,7 @@ impl Plugin for MoveToolPlugin {
 
         app.add_systems(
             Update,
-            (
-                apply_start_move_object_requests,
-                move_tool_system,
-            )
+            (apply_start_move_object_requests, move_tool_system)
                 .chain()
                 .run_if(in_state(ToolMode::Move))
                 .in_set(ToolSet::ToolUpdate),
@@ -41,49 +38,79 @@ impl Plugin for MoveToolPlugin {
 pub fn apply_start_move_object_requests(
     mut commands: Commands,
     mut requests: MessageReader<StartMoveObjectRequested>,
-    movable: Query<(&WorldPos, &FootAnchor, &Footprint, &VisualOffset, &Sprite, &SortBias, Option<&crate::objects::rotation::Rotatable>), (With<Movable>, With<StoreObject>)>,
+    movable: Query<
+        (
+            &WorldPos,
+            &FootAnchor,
+            &Footprint,
+            &VisualOffset,
+            &Sprite,
+            &SortBias,
+            Option<&crate::objects::rotation::Rotatable>,
+        ),
+        (With<Movable>, With<StoreObject>),
+    >,
     mut session: ResMut<ToolSessionState>,
 ) {
     for request in requests.read() {
-        if let Ok((world_pos, foot_anchor, footprint, visual_offset, sprite, sort_bias, rotatable)) = movable.get(request.entity) {
+        if let Ok((
+            world_pos,
+            foot_anchor,
+            footprint,
+            visual_offset,
+            sprite,
+            sort_bias,
+            rotatable,
+        )) = movable.get(request.entity)
+        {
             // Cleanup existing session if any
-            crate::tools::cleanup_current_session(&mut commands, &mut session, crate::tools::ToolSessionEndReason::Replaced);
+            crate::tools::cleanup_current_session(
+                &mut commands,
+                &mut session,
+                crate::tools::ToolSessionEndReason::Replaced,
+            );
 
             let rotation_index = rotatable.map_or(0, |r| r.current);
 
             // Spawn preview entity
-            let preview_entity = commands.spawn((
-                Sprite {
-                    image: sprite.image.clone(),
-                    custom_size: sprite.custom_size,
-                    color: Color::srgba(0.65, 0.90, 1.0, 0.55),
-                    ..default()
-                },
-                *world_pos,
-                ProjectedPos::default(),
-                *foot_anchor,
-                *visual_offset,
-                SortLayer::DragPreview,
-                *sort_bias,
-                footprint.clone(),
-                ToolPreview,
-                ToolPreviewKind::Move { source_entity: request.entity },
-                PlacementPreview { validation: None },
-                NonInteractive,
-                InteractionRole::ToolPreview,
-                RuntimeOwned {
-                    owner: RuntimeOwner::ToolPreview,
-                },
-                Name::new(format!("MovePreview of {:?}", request.entity)),
-            )).id();
+            let preview_entity = commands
+                .spawn((
+                    Sprite {
+                        image: sprite.image.clone(),
+                        custom_size: sprite.custom_size,
+                        color: Color::srgba(0.65, 0.90, 1.0, 0.55),
+                        ..default()
+                    },
+                    *world_pos,
+                    ProjectedPos::default(),
+                    *foot_anchor,
+                    *visual_offset,
+                    SortLayer::DragPreview,
+                    *sort_bias,
+                    footprint.clone(),
+                    ToolPreview,
+                    ToolPreviewKind::Move {
+                        source_entity: request.entity,
+                    },
+                    PlacementPreview { validation: None },
+                    NonInteractive,
+                    InteractionRole::ToolPreview,
+                    RuntimeOwned {
+                        owner: RuntimeOwner::ToolPreview,
+                    },
+                    Name::new(format!("MovePreview of {:?}", request.entity)),
+                ))
+                .id();
 
-            commands.entity(request.entity).insert(PreviewSource { preview_entity });
+            commands
+                .entity(request.entity)
+                .insert(PreviewSource { preview_entity });
 
             session.active = Some(ActiveToolSession::Move(MoveToolSession {
                 source_entity: request.entity,
                 preview_entity,
                 original_world_pos: world_pos.0,
-                rotation_index, 
+                rotation_index,
                 awaiting_fresh_click: true,
             }));
         }
@@ -97,7 +124,10 @@ pub fn move_tool_system(
     gate: Res<ToolInputGate>,
     actions: Res<InputActionState>,
     movable: Query<Entity, (With<Movable>, With<StoreObject>)>,
-    mut ghost_positions: Query<(&mut WorldPos, &PlacementPreview), (With<ToolPreview>, Without<StoreObject>)>,
+    mut ghost_positions: Query<
+        (&mut WorldPos, &PlacementPreview),
+        (With<ToolPreview>, Without<StoreObject>),
+    >,
     mut session: ResMut<ToolSessionState>,
     mut committed: MessageWriter<MoveObjectCommitted>,
     mut requests: MessageWriter<StartMoveObjectRequested>,
@@ -119,7 +149,9 @@ pub fn move_tool_system(
 
     if let Some(ActiveToolSession::Move(move_session)) = session.active.as_mut() {
         // Reset freshness once button is fully released (and not in the release frame itself)
-        if !actions.pressed(InputAction::PrimaryClick) && !actions.just_released(InputAction::PrimaryClick) {
+        if !actions.pressed(InputAction::PrimaryClick)
+            && !actions.just_released(InputAction::PrimaryClick)
+        {
             move_session.awaiting_fresh_click = false;
         }
 
@@ -151,16 +183,16 @@ pub fn move_tool_system(
 
     // Start move via click
     if gate.primary_world_press_started {
-        if let Some(entity) = tool.hovered_object.filter(|entity| movable.get(*entity).is_ok()) {
+        if let Some(entity) = tool
+            .hovered_entity
+            .filter(|entity| movable.get(*entity).is_ok())
+        {
             requests.write(StartMoveObjectRequested { entity });
         }
     }
 }
 
-pub fn cleanup_move_session(
-    mut commands: Commands,
-    mut session: ResMut<ToolSessionState>,
-) {
+pub fn cleanup_move_session(mut commands: Commands, mut session: ResMut<ToolSessionState>) {
     crate::tools::cleanup_current_session(
         &mut commands,
         &mut session,

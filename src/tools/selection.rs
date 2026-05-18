@@ -14,10 +14,7 @@ impl Plugin for SelectionPlugin {
     }
 }
 
-fn cleanup_stale_selection(
-    mut selection: ResMut<SelectionState>,
-    entities: Query<Entity>,
-) {
+fn cleanup_stale_selection(mut selection: ResMut<SelectionState>, entities: Query<Entity>) {
     if let Some(primary) = selection.primary {
         if entities.get(primary).is_err() {
             info!("Clearing stale selection: {:?}", primary);
