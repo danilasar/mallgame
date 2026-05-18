@@ -110,7 +110,7 @@ Gameplay mutation authority:
   - `ProductContainer` requires at least one `BrowseProducts` NPC interaction point.
   - `CheckoutPoint` requires at least one `Checkout` NPC interaction point.
 - Stage 5B.1 introduces a derived boundary-wall layer and an exterior-layer foundation inside `WorldBounds`; exterior is not background-only decor, but it still is not `StoreObject`.
-- Store walls are derived from the outer top-right owned chunk of `StoreArea + expansion policy`, extend along the top row and right column while the run remains contiguous, are not save authority, and are synced through a `WallVisualCache`.
+- Store walls are derived from `StoreArea + expansion policy` for owned chunks on the outer top row and outer right column. Gaps skip only their own wall segment; walls do not shift inward and are not save authority.
 - Wall entities carry `StoreWallSegment` and `WallSurface` metadata; `WallSurface` stores `start/end`, length, thickness, height, and normal for future wall tools.
 - `PointerTargets` now has dedicated `wall_surface` and `exterior` slots for safe picking separation.
 - Stage 5B.2 added `PlacementKind::WallMounted` as a preview branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`.
@@ -135,7 +135,7 @@ Gameplay mutation authority:
 - Save/load is covered by an authority-restoration test.
 - The overlay/highlight refactor is covered by unit tests for dirty entity collection, sprite color mapping, and available expansion chunk selection.
 - Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
-- Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
+- Stage 5B.1 is covered by tests for boundary derivation, outer-line generation with gaps, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
 - Stage 5B.3/5B.3.1 is covered by tests that build a wall-mounted `StoreObject` without floor blocker/move components, derive wall occupancy, reject overlapping wallprints, and restore wall-mounted placement through save/load.
 - Stage 5B.5.1 hardening is covered by tests for door component invariants, door move routing, door self-ignore, access-zone build/move/delete lifecycle, non-door wall object regressions, and doorway save/load reconstruction.
 

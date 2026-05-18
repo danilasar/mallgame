@@ -25,7 +25,7 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - Overlays and highlight visuals stay runtime-owned and transient.
 - Store expansion remains chunk-based and separate from object placement.
 - Exterior is currently a component/target foundation inside `WorldBounds`, not an authored content layer yet.
-- Derived store walls are cache/delta-synced, start at the outer top-right owned chunk, extend only through contiguous boundary runs, and must not become save authority.
+- Derived store walls are cache/delta-synced for owned chunks on the outer top row and outer right column. Missing chunks on those lines skip only their own wall segment; walls must not become save authority.
 - Wall-mounted placement is now buildable for the MVP wall decor prototype: wall prototypes use `PointerTargets.wall_surface`, `WallAttachmentPoint`, `ObjectPlacement::WallMounted`, and the normal `BuildObjectRequested -> DomainCommand::BuildObject` path.
 - Wall-mounted objects are real `StoreObject` entities, but wall visuals/surfaces are still derived runtime entities and are not saved.
 - Wall-mounted objects are not floor objects: they have `WallMountedPlacement` and `Wallprint`, no floor `Footprint`, no `BlocksPlacement`, and no `Movable`.

@@ -27,18 +27,33 @@ fn initial_store_generates_boundary_runs() {
 }
 
 #[test]
-fn missing_outer_corner_does_not_shift_wall_inward() {
+fn missing_outer_corner_keeps_walls_on_outer_lines() {
     let mut store = StoreArea::new(Vec2::ZERO);
     store.owned_chunks.remove(&StoreChunkCoord { x: -1, y: -1 });
 
     let world = WorldBounds::default();
     let segments = collect_boundary_segments(&store, &world);
 
-    assert!(segments.is_empty());
+    let top_segments = segments
+        .iter()
+        .filter(|segment| segment.key.side == StoreBoundarySide::Top)
+        .count();
+    let right_segments = segments
+        .iter()
+        .filter(|segment| segment.key.side == StoreBoundarySide::Right)
+        .count();
+
+    assert_eq!(top_segments, 4);
+    assert_eq!(right_segments, 3);
+    assert!(
+        segments
+            .iter()
+            .all(|segment| { segment.key.chunk.y == -1 || segment.key.chunk.x == -1 })
+    );
 }
 
 #[test]
-fn top_row_stops_at_first_gap_from_corner() {
+fn top_row_gap_skips_only_missing_chunk() {
     let mut store = StoreArea::new(Vec2::ZERO);
     store.owned_chunks.remove(&StoreChunkCoord { x: -2, y: -1 });
 
@@ -54,8 +69,15 @@ fn top_row_stops_at_first_gap_from_corner() {
         .filter(|segment| segment.key.side == StoreBoundarySide::Right)
         .count();
 
-    assert_eq!(top_segments, 1);
+    assert_eq!(top_segments, 4);
     assert_eq!(right_segments, 4);
+    assert!(!segments.iter().any(|segment| {
+        segment.key
+            == WallSegmentKey {
+                chunk: StoreChunkCoord { x: -2, y: -1 },
+                side: StoreBoundarySide::Top,
+            }
+    }));
 }
 
 #[test]

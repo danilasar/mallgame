@@ -126,21 +126,23 @@ Rule of thumb:
 ## Boundary Generation
 
 Boundary walls are derived from owned chunks, not from a rectangular store outline.
-In the current MVP they start at the outer top-right owned chunk and extend along the top row and right column only while the run remains contiguous.
+In the current MVP they are emitted for owned chunks on the outer top row and
+outer right column. A missing chunk on that outer line skips only its own wall
+segment; it does not stop the rest of the line.
 
 MVP generation rule:
 
-- if the outer top-right owned chunk exists and the `Top` side is locked, emit top boundary segments across the contiguous top-row run
-- if the outer top-right owned chunk exists and the `Right` side is locked, emit right boundary segments across the contiguous right-column run
+- if the `Top` side is locked, emit top boundary segments for owned chunks with `y == owned_bounds.max.y`
+- if the `Right` side is locked, emit right boundary segments for owned chunks with `x == owned_bounds.max.x`
 - wall height is at least `1.5x` the chunk height
-- stop the run at the first missing chunk
+- skip missing chunks on the outer line without shifting walls inward
 
 Do not emit walls:
 
 - between owned chunks
 - on unlocked sides
 - on inner shared chunk edges
-- on a second or third row past the first gap in the run
+- on a second or third row behind the outer line
 - as a substitute for store ownership logic
 
 ## Boundary Policy
@@ -216,8 +218,8 @@ Wall sync should run after store mutations and after deferred commands are appli
 ## Test Targets
 
 - boundary generation on initial store shape
-- contiguous run generation from the outer corner
-- outer-corner anchoring
+- outer-line generation with gaps
+- no inward shift when outer-line chunks are missing
 - shared edges not generating walls
 - locked top/right sides generating walls
 - wall cache diffing

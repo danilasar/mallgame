@@ -245,14 +245,14 @@ fn boundary_line_segments(
             for x in (bounds.min.x..=bounds.max.x).rev() {
                 let coord = StoreChunkCoord { x, y };
                 let Some(_) = store.owned_chunks.get(&coord) else {
-                    break;
+                    continue;
                 };
 
                 let rect = store.chunk_rect(coord);
                 let start = Vec2::new(rect.min.x, rect.max.y);
                 let end = Vec2::new(rect.max.x, rect.max.y);
                 if !world.rect.contains(start) || !world.rect.contains(end) {
-                    break;
+                    continue;
                 }
 
                 segments.push(StoreBoundarySegment {
@@ -271,14 +271,14 @@ fn boundary_line_segments(
             for y in (bounds.min.y..=bounds.max.y).rev() {
                 let coord = StoreChunkCoord { x, y };
                 let Some(_) = store.owned_chunks.get(&coord) else {
-                    break;
+                    continue;
                 };
 
                 let rect = store.chunk_rect(coord);
                 let start = Vec2::new(rect.max.x, rect.min.y);
                 let end = Vec2::new(rect.max.x, rect.max.y);
                 if !world.rect.contains(start) || !world.rect.contains(end) {
-                    break;
+                    continue;
                 }
 
                 segments.push(StoreBoundarySegment {
