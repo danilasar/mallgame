@@ -401,19 +401,19 @@ fn rotatable_for_prototype(
 
     let mut variants = vec![normal];
 
-    if proto.rotation.kind == RotationKind::TwoVariants {
-        if let Some(rotated_path) = &proto.rotation.rotated_asset_path {
-            let rotated = RotationVariant {
-                sprite: asset_server.load(rotated_path),
-                footprint: Footprint::rectangle(Vec2::new(
-                    proto.placement.footprint_half_extents.y,
-                    proto.placement.footprint_half_extents.x,
-                )),
-                foot_anchor: proto.visuals.foot_anchor,
-                visual_offset: Vec2::ZERO,
-            };
-            variants.push(rotated);
-        }
+    if proto.rotation.kind == RotationKind::TwoVariants
+        && let Some(rotated_path) = &proto.rotation.rotated_asset_path
+    {
+        let rotated = RotationVariant {
+            sprite: asset_server.load(rotated_path),
+            footprint: Footprint::rectangle(Vec2::new(
+                proto.placement.footprint_half_extents.y,
+                proto.placement.footprint_half_extents.x,
+            )),
+            foot_anchor: proto.visuals.foot_anchor,
+            visual_offset: Vec2::ZERO,
+        };
+        variants.push(rotated);
     }
 
     Some(Rotatable {

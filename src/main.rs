@@ -81,9 +81,9 @@ fn main() {
             (
                 update_pointer_context,
                 update_pointer_over_ui,
-                update_hovered_object.after(update_pointer_over_ui),
-                camera_drag_system.after(update_hovered_object),
-                update_tool_input_gate.after(camera_drag_system),
+                update_hovered_object,
+                camera_drag_system,
+                update_tool_input_gate,
             )
                 .chain(),
         )

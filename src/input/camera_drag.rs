@@ -45,21 +45,20 @@ pub fn camera_drag_system(
         drag.is_camera_dragging = false;
     }
 
-    if actions.pressed(InputAction::PrimaryClick) {
-        if let (Some(start), Some(grabbed_projected)) =
+    if actions.pressed(InputAction::PrimaryClick)
+        && let (Some(start), Some(grabbed_projected)) =
             (drag.pressed_at_screen, drag.grabbed_projected_pos)
-        {
-            if pointer.screen_pos.distance(start) > drag.drag_threshold_px {
-                drag.is_camera_dragging = true;
-                cycle.owner = PointerPressOwner::CameraDrag;
-            }
+    {
+        if pointer.screen_pos.distance(start) > drag.drag_threshold_px {
+            drag.is_camera_dragging = true;
+            cycle.owner = PointerPressOwner::CameraDrag;
+        }
 
-            if drag.is_camera_dragging {
-                let delta = grabbed_projected - pointer.projected_pos;
-                if let Some(mut camera_transform) = camera_query.iter_mut().next() {
-                    camera_transform.translation.x += delta.x;
-                    camera_transform.translation.y += delta.y;
-                }
+        if drag.is_camera_dragging {
+            let delta = grabbed_projected - pointer.projected_pos;
+            if let Some(mut camera_transform) = camera_query.iter_mut().next() {
+                camera_transform.translation.x += delta.x;
+                camera_transform.translation.y += delta.y;
             }
         }
     }

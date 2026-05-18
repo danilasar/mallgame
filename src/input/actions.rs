@@ -99,7 +99,7 @@ impl InputBindings {
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.map.get(&action).map_or(false, |bindings| {
+        self.map.get(&action).is_some_and(|bindings| {
             bindings.iter().any(|b| match b {
                 InputBinding::Key(k) => keys.just_pressed(*k),
                 InputBinding::Mouse(m) => mouse.just_pressed(*m),
@@ -113,7 +113,7 @@ impl InputBindings {
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.map.get(&action).map_or(false, |bindings| {
+        self.map.get(&action).is_some_and(|bindings| {
             bindings.iter().any(|b| match b {
                 InputBinding::Key(k) => keys.pressed(*k),
                 InputBinding::Mouse(m) => mouse.pressed(*m),
@@ -127,7 +127,7 @@ impl InputBindings {
         keys: &ButtonInput<KeyCode>,
         mouse: &ButtonInput<MouseButton>,
     ) -> bool {
-        self.map.get(&action).map_or(false, |bindings| {
+        self.map.get(&action).is_some_and(|bindings| {
             bindings.iter().any(|b| match b {
                 InputBinding::Key(k) => keys.just_released(*k),
                 InputBinding::Mouse(m) => mouse.just_released(*m),

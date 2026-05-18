@@ -65,20 +65,16 @@ pub fn update_hovered_object(
         if local.x >= -half.x && local.x <= half.x && local.y >= -half.y && local.y <= half.y {
             let rank = layer.base_z() + transform.translation.z;
             match role {
-                InteractionRole::WorldObject => {
-                    if hit_object.map_or(true, |(_, r)| rank > r) {
-                        hit_object = Some((entity, rank));
-                    }
+                InteractionRole::WorldObject if hit_object.is_none_or(|(_, r)| rank > r) => {
+                    hit_object = Some((entity, rank));
                 }
-                InteractionRole::WorldWidget => {
-                    if hit_widget.map_or(true, |(_, r)| rank > r) {
-                        hit_widget = Some((entity, rank));
-                    }
+                InteractionRole::WorldWidget if hit_widget.is_none_or(|(_, r)| rank > r) => {
+                    hit_widget = Some((entity, rank));
                 }
-                InteractionRole::Overlay | InteractionRole::Debug => {
-                    if hit_debug.map_or(true, |(_, r)| rank > r) {
-                        hit_debug = Some((entity, rank));
-                    }
+                InteractionRole::Overlay | InteractionRole::Debug
+                    if hit_debug.is_none_or(|(_, r)| rank > r) =>
+                {
+                    hit_debug = Some((entity, rank));
                 }
                 _ => {}
             }

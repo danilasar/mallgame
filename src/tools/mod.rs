@@ -315,17 +315,17 @@ pub fn convert_committed_requests_to_commands(
     world_positions: Query<&WorldPos>,
 ) {
     for movement in moves.read() {
-        if let Ok(stable_id) = stable_ids.get(movement.entity) {
-            if let Ok(current_pos) = world_positions.get(movement.entity) {
-                queue
-                    .commands
-                    .push_back(DomainCommand::MoveObject(MoveObjectCommand {
-                        object_id: stable_id.0,
-                        from: current_pos.0,
-                        to: movement.new_pos,
-                        rotation_index: Some(movement.rotation),
-                    }));
-            }
+        if let Ok(stable_id) = stable_ids.get(movement.entity)
+            && let Ok(current_pos) = world_positions.get(movement.entity)
+        {
+            queue
+                .commands
+                .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+                    object_id: stable_id.0,
+                    from: current_pos.0,
+                    to: movement.new_pos,
+                    rotation_index: Some(movement.rotation),
+                }));
         }
     }
 
@@ -358,15 +358,13 @@ pub fn handle_domain_event_selection_cleanup(
     stable_ids: Query<(Entity, &ObjectStableId)>,
 ) {
     for event in events.read() {
-        if let crate::store::events::DomainEvent::ObjectDeleted { id } = event {
-            if let Some(selected_entity) = selection.primary {
-                if let Ok((_, stable_id)) = stable_ids.get(selected_entity) {
-                    if &stable_id.0 == id {
-                        info!("Clearing selection for deleted object {:?}", id);
-                        selection.primary = None;
-                    }
-                }
-            }
+        if let crate::store::events::DomainEvent::ObjectDeleted { id } = event
+            && let Some(selected_entity) = selection.primary
+            && let Ok((_, stable_id)) = stable_ids.get(selected_entity)
+            && &stable_id.0 == id
+        {
+            info!("Clearing selection for deleted object {:?}", id);
+            selection.primary = None;
         }
     }
 }

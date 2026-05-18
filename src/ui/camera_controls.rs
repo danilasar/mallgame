@@ -149,17 +149,17 @@ fn apply_camera_control_requests(
     for request in requests.read() {
         match request {
             CameraControlRequested::ZoomIn => {
-                if let Some(mut projection) = projections.iter_mut().next() {
-                    if let Projection::Orthographic(orthographic) = &mut *projection {
-                        orthographic.scale = (orthographic.scale * 0.9).clamp(0.25, 4.0);
-                    }
+                if let Some(mut projection) = projections.iter_mut().next()
+                    && let Projection::Orthographic(orthographic) = &mut *projection
+                {
+                    orthographic.scale = (orthographic.scale * 0.9).clamp(0.25, 4.0);
                 }
             }
             CameraControlRequested::ZoomOut => {
-                if let Some(mut projection) = projections.iter_mut().next() {
-                    if let Projection::Orthographic(orthographic) = &mut *projection {
-                        orthographic.scale = (orthographic.scale * 1.1).clamp(0.25, 4.0);
-                    }
+                if let Some(mut projection) = projections.iter_mut().next()
+                    && let Projection::Orthographic(orthographic) = &mut *projection
+                {
+                    orthographic.scale = (orthographic.scale * 1.1).clamp(0.25, 4.0);
                 }
             }
             CameraControlRequested::ToggleFullscreen => {

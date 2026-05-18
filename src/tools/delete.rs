@@ -43,16 +43,15 @@ pub fn delete_tool_system(
         return;
     }
 
-    if gate.primary_world_click_released {
-        if let Some(entity) = tool
+    if gate.primary_world_click_released
+        && let Some(entity) = tool
             .hovered_entity
             .filter(|entity| deletable.get(*entity).is_ok())
-        {
-            actions.write(ObjectActionRequested {
-                entity,
-                action: ObjectActionKind::Delete,
-                origin: ObjectActionOrigin::CursorClick,
-            });
-        }
+    {
+        actions.write(ObjectActionRequested {
+            entity,
+            action: ObjectActionKind::Delete,
+            origin: ObjectActionOrigin::CursorClick,
+        });
     }
 }

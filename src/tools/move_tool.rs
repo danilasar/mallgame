@@ -159,7 +159,7 @@ pub fn move_tool_system(
             world_pos.0 = pointer.world_pos;
 
             if gate.primary_world_click_released && !move_session.awaiting_fresh_click {
-                let is_valid = preview.validation.as_ref().map_or(false, |r| r.is_ok());
+                let is_valid = preview.validation.as_ref().is_some_and(|r| r.is_ok());
                 if is_valid {
                     committed.write(MoveObjectCommitted {
                         entity: move_session.source_entity,
@@ -182,13 +182,12 @@ pub fn move_tool_system(
     }
 
     // Start move via click
-    if gate.primary_world_press_started {
-        if let Some(entity) = tool
+    if gate.primary_world_press_started
+        && let Some(entity) = tool
             .hovered_entity
             .filter(|entity| movable.get(*entity).is_ok())
-        {
-            requests.write(StartMoveObjectRequested { entity });
-        }
+    {
+        requests.write(StartMoveObjectRequested { entity });
     }
 }
 

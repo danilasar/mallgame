@@ -104,7 +104,7 @@ struct QuickLoadParams<'w, 's> {
 }
 
 fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: QuickLoadParams) {
-    for _ in events.read() {
+    if events.read().next().is_some() {
         match read_save_file("quicksave.json") {
             Ok(save) => match build_load_plan(save, p.limits.as_ref(), p.world_bounds.as_ref()) {
                 Ok(plan) => {
@@ -150,6 +150,5 @@ fn handle_quick_load(mut events: MessageReader<QuickLoadRequested>, mut p: Quick
             },
             Err(e) => error!("QuickLoad failed: {}", e),
         }
-        break;
     }
 }
