@@ -203,3 +203,117 @@ fn test_save_load_restores_wall_mounted_object() {
         "wall-mounted object should restore from save placement"
     );
 }
+
+#[test]
+fn test_save_load_restores_doorway_with_derived_access_zone() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(AssetPlugin::default());
+    app.init_asset::<Image>();
+    crate::store::commands::register_test_messages(&mut app);
+
+    let commands = app.world_mut().commands();
+    crate::objects::prototypes::setup_object_catalog(commands);
+    app.update();
+
+    let segment_key = crate::store::WallSegmentKey {
+        chunk: crate::store::StoreChunkCoord { x: 0, y: 0 },
+        side: crate::store::StoreBoundarySide::Top,
+    };
+    let save = SaveGame {
+        version: CURRENT_SAVE_VERSION,
+        next_object_id: 4000,
+        store: StoreSave {
+            owned_chunks: vec![StoreChunkSave {
+                coord: segment_key.chunk,
+                kind: crate::store::StoreChunkKind::Default,
+            }],
+        },
+        objects: vec![ObjectSave {
+            id: StableObjectId(4001),
+            prototype_id: BuildObjectId::new("wall.door.basic_customer"),
+            placement: ObjectPlacementSave::WallMounted {
+                segment_key: WallSegmentKeySave {
+                    chunk: segment_key.chunk,
+                    side: segment_key.side,
+                },
+                offset_along_segment: 96.0,
+                height_on_wall: 128.0,
+            },
+        }],
+    };
+
+    let plan = build_load_plan(save, &SaveLoadLimits::default(), &WorldBounds::default()).unwrap();
+
+    app.insert_resource(StoreArea::new(Vec2::ZERO));
+    app.insert_resource(StableObjectIdAllocator { next: 1 });
+    app.world_mut().insert_resource(plan);
+    app.add_systems(
+        Update,
+        |mut commands: Commands,
+         asset_server: Res<AssetServer>,
+         mut store: ResMut<StoreArea>,
+         mut allocator: ResMut<StableObjectIdAllocator>,
+         catalog: Res<ObjectCatalog>,
+         query: Query<Entity, With<StoreObject>>,
+         plan_res: Res<LoadPlan>| {
+            apply_load_plan(
+                &mut commands,
+                &asset_server,
+                &mut store,
+                &mut allocator,
+                &catalog,
+                &query,
+                &WorldBounds::default(),
+                plan_res.clone(),
+            );
+        },
+    );
+
+    app.update();
+
+    let world = app.world_mut();
+    let mut query = world.query::<(
+        &ObjectStableId,
+        &crate::objects::components::WallMountedPlacement,
+        &crate::objects::components::Wallprint,
+        &crate::objects::components::Doorway,
+        &crate::objects::components::InteriorAccessZone,
+        &crate::objects::components::DoorMovable,
+        Option<&Footprint>,
+        Option<&crate::objects::components::BlocksPlacement>,
+        Option<&crate::objects::components::Movable>,
+        Option<&crate::objects::components::WallMovable>,
+    )>();
+
+    let found = query.iter(world).any(
+        |(
+            sid,
+            placement,
+            wallprint,
+            _doorway,
+            access_zone,
+            _door_movable,
+            footprint,
+            blocks_placement,
+            movable,
+            wall_movable,
+        )| {
+            sid.0 == StableObjectId(4001)
+                && placement.attachment.segment_key == segment_key
+                && placement.attachment.offset_along_segment == 96.0
+                && placement.attachment.height_on_wall == 0.0
+                && wallprint.rects.len() == 1
+                && !access_zone.polygon.is_empty()
+                && footprint.is_none()
+                && blocks_placement.is_none()
+                && movable.is_none()
+                && wall_movable.is_none()
+        },
+    );
+
+    assert!(
+        found,
+        "loaded doorway should derive wallprint and access zone"
+    );
+}

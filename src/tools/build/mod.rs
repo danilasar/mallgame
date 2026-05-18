@@ -6,8 +6,8 @@ use crate::input::{
     InputAction, InputActionState, PointerContext, PointerTargets, point_in_convex_quad,
 };
 use crate::objects::components::{
-    DoorAccessZonePreview, InteractionRole, RuntimeOwned, RuntimeOwner, VisualOffset,
-    WallAttachmentPoint, WorldPos,
+    AccessZonePreviewShape, DoorAccessZonePreview, InteractionRole, RuntimeOwned, RuntimeOwner,
+    VisualOffset, WallAttachmentPoint, WorldPos,
 };
 use crate::objects::prototypes::{
     BuildSelectionState, ObjectCatalog, PlacementKind, SelectBuildPrototypeRequested,
@@ -313,10 +313,12 @@ pub fn build_tool_system(mut params: BuildToolParams) {
                             surface,
                             crate::objects::prototypes::wall_occupancy_kind_for_prototype(proto),
                         ) {
-                            params
-                                .commands
-                                .entity(access_zone_preview)
-                                .insert((derived.interior_access_zone, Visibility::Visible));
+                            params.commands.entity(access_zone_preview).insert((
+                                AccessZonePreviewShape {
+                                    polygon: derived.interior_access_zone.polygon,
+                                },
+                                Visibility::Visible,
+                            ));
                         } else {
                             params
                                 .commands

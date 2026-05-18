@@ -207,6 +207,11 @@ pub struct DerivedDoorPlacement {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorAccessZonePreview;
 
+#[derive(Component, Debug, Clone)]
+pub struct AccessZonePreviewShape {
+    pub polygon: Vec<Vec2>,
+}
+
 /// Runtime wall-rect cache used by current selection/inspection paths.
 ///
 /// `Wallprint` is the authoritative wall occupancy geometry. This component is

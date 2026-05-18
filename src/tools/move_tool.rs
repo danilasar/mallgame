@@ -2,9 +2,9 @@ use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState, PointerContext, PointerTargets};
 use crate::objects::components::{
-    FootAnchor, Footprint, InteractionRole, Movable, ObjectPlacement, ObjectPrototypeId,
-    ProjectedPos, RuntimeOwned, RuntimeOwner, SortBias, SortLayer, StoreObject, VisualOffset,
-    WallMountedPlacement, WallMovable, WallMovePreview, WorldPos,
+    AccessZonePreviewShape, FootAnchor, Footprint, InteractionRole, Movable, ObjectPlacement,
+    ObjectPrototypeId, ProjectedPos, RuntimeOwned, RuntimeOwner, SortBias, SortLayer, StoreObject,
+    VisualOffset, WallMountedPlacement, WallMovable, WallMovePreview, WorldPos,
 };
 use crate::tools::{
     ActiveToolSession, FloorMoveSession, MoveObjectCommitted, MoveToolSession, NonInteractive,
@@ -518,18 +518,48 @@ pub fn move_tool_system(mut params: MoveToolParams) {
                                     proto.unwrap(),
                                 ),
                             ) {
+                                if let Some(access_preview) =
+                                    door_session.access_zone_preview_entity
+                                {
+                                    params.commands.entity(access_preview).insert((
+                                        AccessZonePreviewShape {
+                                            polygon: derived.interior_access_zone.polygon.clone(),
+                                        },
+                                        Visibility::Visible,
+                                    ));
+                                }
                                 door_session.current_derived = Some(derived);
                             } else {
+                                if let Some(access_preview) =
+                                    door_session.access_zone_preview_entity
+                                {
+                                    params
+                                        .commands
+                                        .entity(access_preview)
+                                        .insert(Visibility::Hidden);
+                                }
                                 door_session.current_derived = None;
                             }
 
                             preview.validation = Some(Ok(()));
                         } else {
+                            if let Some(access_preview) = door_session.access_zone_preview_entity {
+                                params
+                                    .commands
+                                    .entity(access_preview)
+                                    .insert(Visibility::Hidden);
+                            }
                             door_session.current_attachment = None;
                             door_session.current_derived = None;
                             preview.validation = None;
                         }
                     } else {
+                        if let Some(access_preview) = door_session.access_zone_preview_entity {
+                            params
+                                .commands
+                                .entity(access_preview)
+                                .insert(Visibility::Hidden);
+                        }
                         door_session.current_attachment = None;
                         door_session.current_derived = None;
                         preview.validation = None;
@@ -579,4 +609,161 @@ pub fn cleanup_move_session(mut commands: Commands, mut session: ResMut<ToolSess
         &mut session,
         crate::tools::ToolSessionEndReason::Replaced,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::objects::components::{
+        DoorMovable, Doorway, DoorwayKind, ObjectStableId, StableObjectId, WallAttachmentPoint,
+        WallMounted, WallMountedPlacement,
+    };
+    use crate::objects::prototypes::BuildObjectId;
+
+    fn setup_start_move_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ToolSessionState>();
+        app.add_message::<StartMoveObjectRequested>();
+        app.add_systems(
+            Update,
+            (apply_start_move_object_requests, ApplyDeferred).chain(),
+        );
+        app
+    }
+
+    fn test_attachment() -> WallAttachmentPoint {
+        WallAttachmentPoint {
+            segment_key: crate::store::WallSegmentKey {
+                chunk: crate::store::StoreChunkCoord { x: 0, y: 0 },
+                side: crate::store::StoreBoundarySide::Top,
+            },
+            offset_along_segment: 64.0,
+            height_on_wall: 0.0,
+        }
+    }
+
+    #[test]
+    fn door_move_request_starts_door_strategy_before_generic_wall_strategy() {
+        let mut app = setup_start_move_app();
+        let attachment = test_attachment();
+        let door = app
+            .world_mut()
+            .spawn((
+                StoreObject,
+                ObjectStableId(StableObjectId(9000)),
+                ObjectPrototypeId(BuildObjectId::new("wall.door.basic_customer")),
+                WallMountedPlacement { attachment },
+                WallMounted {
+                    attachment,
+                    width: 64.0,
+                    height: 128.0,
+                },
+                Doorway {
+                    kind: DoorwayKind::CustomerEntrance,
+                },
+                DoorMovable,
+                WallMovable,
+                Sprite::default(),
+                VisualOffset::default(),
+                SortBias::default(),
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<Messages<StartMoveObjectRequested>>()
+            .write(StartMoveObjectRequested { entity: door });
+
+        app.update();
+
+        let session = app.world().resource::<ToolSessionState>();
+        let ActiveToolSession::Move(MoveToolSession::Door(door_session)) =
+            session.active.as_ref().expect("move session should start")
+        else {
+            panic!("door must use DoorMoveSession, not generic wall move");
+        };
+        assert_eq!(door_session.source_entity, door);
+
+        let preview_entity = door_session.preview_entity;
+        let access_preview = door_session
+            .access_zone_preview_entity
+            .expect("door move must create access-zone preview");
+        let preview_ref = app.world().entity(access_preview);
+        assert!(preview_ref.contains::<crate::objects::components::DoorAccessZonePreview>());
+        assert!(preview_ref.contains::<ToolPreview>());
+        assert!(preview_ref.contains::<NonInteractive>());
+        assert!(!preview_ref.contains::<StoreObject>());
+        assert!(!preview_ref.contains::<ObjectStableId>());
+        assert!(!preview_ref.contains::<crate::objects::components::InteriorAccessZone>());
+        assert!(app.world().entity(preview_entity).contains::<ToolPreview>());
+    }
+
+    #[test]
+    fn generic_wall_object_starts_wall_move_strategy() {
+        let mut app = setup_start_move_app();
+        let attachment = test_attachment();
+        let wall_object = app
+            .world_mut()
+            .spawn((
+                StoreObject,
+                ObjectStableId(StableObjectId(9001)),
+                ObjectPrototypeId(BuildObjectId::new("wall.decor.placeholder")),
+                WallMountedPlacement { attachment },
+                WallMounted {
+                    attachment,
+                    width: 64.0,
+                    height: 64.0,
+                },
+                WallMovable,
+                Sprite::default(),
+                VisualOffset::default(),
+                SortBias::default(),
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<Messages<StartMoveObjectRequested>>()
+            .write(StartMoveObjectRequested {
+                entity: wall_object,
+            });
+        app.update();
+
+        let session = app.world().resource::<ToolSessionState>();
+        assert!(matches!(
+            session.active,
+            Some(ActiveToolSession::Move(MoveToolSession::WallMounted(_)))
+        ));
+    }
+
+    #[test]
+    fn floor_object_starts_floor_move_strategy() {
+        let mut app = setup_start_move_app();
+        let floor_object = app
+            .world_mut()
+            .spawn((
+                StoreObject,
+                ObjectStableId(StableObjectId(9002)),
+                WorldPos(Vec2::ZERO),
+                FootAnchor::default(),
+                Footprint::rectangle(Vec2::splat(16.0)),
+                VisualOffset::default(),
+                Sprite::default(),
+                SortBias::default(),
+                Movable,
+            ))
+            .id();
+
+        app.world_mut()
+            .resource_mut::<Messages<StartMoveObjectRequested>>()
+            .write(StartMoveObjectRequested {
+                entity: floor_object,
+            });
+        app.update();
+
+        let session = app.world().resource::<ToolSessionState>();
+        assert!(matches!(
+            session.active,
+            Some(ActiveToolSession::Move(MoveToolSession::Floor(_)))
+        ));
+    }
 }

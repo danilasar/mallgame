@@ -116,9 +116,10 @@ Gameplay mutation authority:
 - Stage 5B.2 added `PlacementKind::WallMounted` as a preview branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`.
 - Stage 5B.3 makes wall-mounted placement buildable for the MVP wall decor/window prototypes. `BuildObjectRequested` and `DomainCommand::BuildObject` carry `ObjectPlacement`, and wall-mounted objects are spawned as real `StoreObject` entities with `WallMounted` attachment data.
 - Stage 5B.3.1 hardens spatial occupancy: floor objects use `FloorPlacement` and floor `Footprint`; wall-mounted objects use `WallMountedPlacement` and `Wallprint`. `WallMountedBounds` remains a narrow runtime cache while selection/highlight code migrates away from floor-footprint assumptions.
-- Wall-mounted objects are deliberately not moved by the current floor `MoveTool`. They are valid `StoreObject` entities for selection, inspection, delete, and save/load, but they do not get `Movable` until a wall-mounted move strategy exists.
+- Wall-mounted decor/window objects use a wall-specific move path when they opt into `WallMovable`; they never use floor `Movable` or floor `WorldPos` as placement authority.
 - `wall.window.basic_visual` is visual-only: it uses `Window { glass_alpha }` for presentation semantics and does not create wall cutouts, collision changes, or navigation portals.
 - `wall.door.basic_customer` is a wall-mounted door prototype. Its attachment height is normalized to the wall floor line; it creates an interior access zone but still does not create a wall cutout or navigation portal.
+- Door objects route through `DoorMoveSession`, not generic `WallMoveSession`: they carry `Wallprint + InteriorAccessZone`, self-ignore only their previous wall/access claims during move validation, and update both derived geometries through `DomainCommand::MoveObject`.
 - The Ribbon exposes a `Walls` tab for the wall-mounted prototype. Wall-mounted objects are saved and loaded through `ObjectPlacement::WallMounted`; wall visuals and wall surfaces remain derived and unsaved.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
@@ -136,6 +137,7 @@ Gameplay mutation authority:
 - Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
 - Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
 - Stage 5B.3/5B.3.1 is covered by tests that build a wall-mounted `StoreObject` without floor blocker/move components, derive wall occupancy, reject overlapping wallprints, and restore wall-mounted placement through save/load.
+- Stage 5B.5.1 hardening is covered by tests for door component invariants, door move routing, door self-ignore, access-zone build/move/delete lifecycle, non-door wall object regressions, and doorway save/load reconstruction.
 
 ## Store Rules
 

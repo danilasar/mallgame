@@ -312,3 +312,5 @@ Current coverage includes:
 - wall-mounted load restores wall placement/occupancy components and does not add floor `Footprint`;
 - wall surface hit and attachment clamping;
 - save/load authority restoration for existing objects.
+- doorway hardening covers the door-specific access-zone and move behavior in
+  [doorway-stage5b5.md](/home/danilasar/data/projects/mallgame/docs/doorway-stage5b5.md).

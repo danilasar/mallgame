@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::objects::components::{
-    Footprint, InteractionRole, RuntimeOwned, RuntimeOwner, SortLayer, WallMounted, Wallprint,
-    WorldPos,
+    AccessZonePreviewShape, Footprint, InteractionRole, RuntimeOwned, RuntimeOwner, SortLayer,
+    WallMounted, Wallprint, WorldPos,
 };
 use crate::placement::world_polygon;
 use crate::presentation::IsoProjection;
@@ -39,6 +39,7 @@ pub fn update_footprint_outline_overlay(
     objects: Query<(&WorldPos, &Footprint), Without<WallMounted>>,
     wall_objects: Query<&Wallprint>,
     access_zones: Query<&crate::objects::components::InteriorAccessZone>,
+    access_zone_previews: Query<&AccessZonePreviewShape>,
     wall_surfaces: Query<&WallSurface>,
     mut overlays: Query<
         (
@@ -121,7 +122,7 @@ pub fn update_footprint_outline_overlay(
         session.active.as_ref()
     {
         if let Some(az_preview) = wall.access_zone_preview_entity
-            && let Ok(access_zone) = access_zones.get(az_preview)
+            && let Ok(access_zone) = access_zone_previews.get(az_preview)
         {
             let mut points = Vec::new();
             for &p in &access_zone.polygon {

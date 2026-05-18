@@ -32,6 +32,8 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - `Footprint` is floor occupancy only. `Wallprint` is wall occupancy only. `StoreObject` no longer implies either one by itself.
 - `wall.window.basic_visual` is a visual-only wall-mounted window. It uses alpha/presentation semantics only and does not create a StoreArea hole, wall cutout, navigation portal, or collision change.
 - `wall.door.basic_customer` is a basic wall door. Door attachments are normalized to the wall floor line (`height_on_wall = 0.0`) before build/move/load/factory paths, and the door creates an interior access zone without a navigation portal or wall cutout.
+- Door move is a separate strategy from generic wall move. `Doorway + DoorMovable` must route to `DoorMoveSession` before the generic `WallMountedPlacement + WallMovable` branch, because door movement must validate and update both `Wallprint` and `InteriorAccessZone`.
+- Door access-zone preview geometry uses `AccessZonePreviewShape`; preview entities must not carry real `InteriorAccessZone` authority.
 
 ## Remaining Technical Debt
 
@@ -39,7 +41,7 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - `apply_domain_commands` will grow if new gameplay commands are added without further decomposition.
 - Camera clamping is pragmatic viewport-aware logic, not an exact geometry solver.
 - Stage 5B.1 must keep picking separation explicit: `WorldObject`, `WallSurface`, and `Exterior` are distinct interaction domains.
-- Wall-mounted move is not implemented by design. Wall-mounted objects are selectable, inspectable, deletable, and saveable, but they are not `Movable`; the floor `MoveTool` must not start for them. A future wall-move flow must use `WallSurface -> WallAttachmentPoint -> Wallprint` validation instead.
+- Floor move, generic wall move, and door move are separate strategies under one user-facing Move action. Do not collapse them into one `StoreObject`/`WorldPos` path.
 - Door/window cutouts, navigation portals, and wall occupancy beyond MVP `WallprintRect` overlap are still out of scope.
 
 ## When Extending The Runtime

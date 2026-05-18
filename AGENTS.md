@@ -39,6 +39,8 @@ This repository is a Rust + Bevy 2D isometric prototype with a strict ECS split:
 - Read [docs/catalog-stage5a.md](/home/danilasar/data/projects/mallgame/docs/catalog-stage5a.md) for the Stage 5A prototype/catalog/capability model.
 - Read [docs/walls-stage5b.md](/home/danilasar/data/projects/mallgame/docs/walls-stage5b.md) for the Stage 5B.1 boundary wall and exterior layer model.
 - Read [docs/wall-mounted-stage5b3.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b3.md) for the current wall-mounted object MVP.
+- Read [docs/wall-mounted-stage5b4.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b4.md) for generic wall-mounted move.
+- Read [docs/doorway-stage5b5.md](/home/danilasar/data/projects/mallgame/docs/doorway-stage5b5.md) for doorway/access-zone hardening.
 
 ## Verification
 

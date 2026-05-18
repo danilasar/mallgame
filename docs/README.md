@@ -8,5 +8,7 @@ Start here:
 - [walls-stage5b.md](/home/danilasar/data/projects/mallgame/docs/walls-stage5b.md)
 - [wall-mounted-stage5b2.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b2.md)
 - [wall-mounted-stage5b3.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b3.md)
+- [wall-mounted-stage5b4.md](/home/danilasar/data/projects/mallgame/docs/wall-mounted-stage5b4.md)
+- [doorway-stage5b5.md](/home/danilasar/data/projects/mallgame/docs/doorway-stage5b5.md)
 
 The root [AGENTS.md](/home/danilasar/data/projects/mallgame/AGENTS.md) contains working rules only. Detailed codebase notes live in this folder.
