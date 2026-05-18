@@ -24,16 +24,18 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - Tool sessions stay preview-based.
 - Overlays and highlight visuals stay runtime-owned and transient.
 - Store expansion remains chunk-based and separate from object placement.
+- Exterior is currently a component/target foundation inside `WorldBounds`, not an authored content layer yet.
+- Derived store walls are cache/delta-synced, start at the outer top-right owned chunk, extend only through contiguous boundary runs, and must not become save authority.
 
 ## Remaining Technical Debt
 
 - `StoreArea::contains_polygon_sampled` is still sampled coverage, not exact polygon clipping.
 - `apply_domain_commands` will grow if new gameplay commands are added without further decomposition.
 - Camera clamping is pragmatic viewport-aware logic, not an exact geometry solver.
+- Stage 5B.1 must keep picking separation explicit: `WorldObject`, `WallSurface`, and `Exterior` are distinct interaction domains.
 
 ## When Extending The Runtime
 
 - If a system touches every entity each frame, ask whether it can become delta-driven or cache-backed.
 - If a system needs to mutate gameplay truth, route it through request/command boundaries.
 - If a runtime entity is transient, keep it under the transient ownership model and test cleanup explicitly.
-

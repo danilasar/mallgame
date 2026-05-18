@@ -142,6 +142,8 @@ pub fn reset_ui_runtime(
     modal_stack.stack.clear();
     targets.world_object = None;
     targets.world_widget = None;
+    targets.wall_surface = None;
+    targets.exterior = None;
     targets.debug = None;
 }
 

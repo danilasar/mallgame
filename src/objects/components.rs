@@ -41,7 +41,10 @@ pub struct VisualOffset(pub Vec2);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortLayer {
     Floor,
+    ExteriorBack,
     StoreOverlay,
+    WallFace,
+    WallTopCap,
     Decals,
     Objects,
     Characters,
@@ -50,9 +53,12 @@ pub enum SortLayer {
 }
 
 impl SortLayer {
-    pub const ALL: [SortLayer; 7] = [
+    pub const ALL: [SortLayer; 10] = [
         SortLayer::Floor,
+        SortLayer::ExteriorBack,
         SortLayer::StoreOverlay,
+        SortLayer::WallFace,
+        SortLayer::WallTopCap,
         SortLayer::Decals,
         SortLayer::Objects,
         SortLayer::Characters,
@@ -63,7 +69,10 @@ impl SortLayer {
     pub fn base_z(self) -> f32 {
         match self {
             SortLayer::Floor => 100.0,
+            SortLayer::ExteriorBack => 150.0,
             SortLayer::StoreOverlay => 200.0,
+            SortLayer::WallFace => 240.0,
+            SortLayer::WallTopCap => 245.0,
             SortLayer::Decals => 300.0,
             SortLayer::Objects => 500.0,
             SortLayer::Characters => 600.0,
@@ -156,6 +165,8 @@ impl HighlightKind {
 pub enum InteractionRole {
     WorldObject,
     WorldWidget,
+    WallSurface,
+    Exterior,
     ToolPreview,
     Overlay,
     Debug,
@@ -166,6 +177,8 @@ pub enum InteractionRole {
 pub enum RuntimeOwner {
     ToolPreview,
     WorldWidget,
+    BoundaryWall,
+    Exterior,
     ExpansionOverlay,
     FootprintOverlay,
     StoreOverlay,
@@ -180,6 +193,26 @@ pub struct RuntimeOwned {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct StoreObject;
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ExteriorObject;
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ExteriorStateful;
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ExteriorInspectable;
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ExteriorInteractive;
+
+#[derive(Component, Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub struct ExteriorVisual;
 
 // Stage 5A Capabilities
 

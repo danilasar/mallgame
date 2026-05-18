@@ -1,3 +1,4 @@
+pub mod boundary;
 pub mod area;
 pub mod chunks;
 pub mod commands;
@@ -6,6 +7,7 @@ pub mod expansion;
 pub mod overlay;
 pub mod validation;
 
+pub use boundary::*;
 pub use area::*;
 pub use chunks::*;
 pub use commands::*;

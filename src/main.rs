@@ -46,6 +46,7 @@ fn main() {
             ModalUiPlugin,
             WorldWidgetUiPlugin,
             StorePlugin,
+            StoreBoundaryPlugin,
             StoreOverlayPlugin,
             SaveLoadPlugin,
         ))

@@ -59,7 +59,7 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `ToolContext` stores hovered entity, pointer coordinates, and active session data.
 - `ToolSessionState` stores current build/move/expansion sessions.
 - `ModalStack` stores modal lifecycle and blocking state.
-- `PointerTargets` stores hovered world object/widget/debug target separation.
+- `PointerTargets` stores hovered world object/widget/wall/exterior/debug target separation.
 - `PrimaryPointerCycle` stores primary click ownership across frame boundaries.
 - `SelectionState` owns currently focused objects.
 
@@ -107,6 +107,10 @@ Gameplay mutation authority:
 - Catalog validation checks for non-empty display names and capability/interaction-point invariants:
   - `ProductContainer` requires at least one `BrowseProducts` NPC interaction point.
   - `CheckoutPoint` requires at least one `Checkout` NPC interaction point.
+- Stage 5B.1 introduces a derived boundary-wall layer and an exterior-layer foundation inside `WorldBounds`; exterior is not background-only decor, but it still is not `StoreObject`.
+- Store walls are derived from the outer top-right owned chunk of `StoreArea + expansion policy`, extend along the top row and right column while the run remains contiguous, are not save authority, and are synced through a `WallVisualCache`.
+- Wall entities carry `StoreWallSegment` and `WallSurface` metadata; `WallSurface` stores `start/end`, length, thickness, height, and normal for future wall tools.
+- `PointerTargets` now has dedicated `wall_surface` and `exterior` slots for safe picking separation.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
 - Domain mutations are unified behind the `DomainCommand` system.
@@ -121,6 +125,7 @@ Gameplay mutation authority:
 - Save/load is covered by an authority-restoration test.
 - The overlay/highlight refactor is covered by unit tests for dirty entity collection, sprite color mapping, and available expansion chunk selection.
 - Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
+- Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and the new wall-distance picking helper. Exterior content is still just a component/target foundation.
 
 ## Store Rules
 
@@ -137,3 +142,4 @@ Gameplay mutation authority:
 - Economy system and currency-based validation in commands.
 - Save migrations and multiple slots.
 - Further decomposition of `DomainCommand` apply paths if new gameplay commands add more branching.
+- Stage 5B.1 wall/exterior foundation and future wall-mounted placement.

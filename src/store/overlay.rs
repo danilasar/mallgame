@@ -339,12 +339,27 @@ fn spawn_chunk_outline(commands: &mut Commands, spec: ChunkOutlineSpec<'_>) -> V
     ];
     let mut entities = Vec::with_capacity(points.len());
 
-    for (a, b) in points
+    for (i, (a, b)) in points
         .iter()
         .copied()
         .zip(points.iter().copied().cycle().skip(1))
         .take(points.len())
+        .enumerate()
     {
+        // For owned chunks, only draw the segment if the neighbor on that side is NOT owned.
+        if spec.kind == StoreChunkOverlayKind::Owned {
+            let neighbor_coord = match i {
+                0 => StoreChunkCoord { x: spec.coord.x, y: spec.coord.y - 1 },
+                1 => StoreChunkCoord { x: spec.coord.x + 1, y: spec.coord.y },
+                2 => StoreChunkCoord { x: spec.coord.x, y: spec.coord.y + 1 },
+                3 => StoreChunkCoord { x: spec.coord.x - 1, y: spec.coord.y },
+                _ => unreachable!(),
+            };
+            if spec.store.owned_chunks.contains_key(&neighbor_coord) {
+                continue;
+            }
+        }
+
         let pa = world_to_iso(a, spec.projection);
         let pb = world_to_iso(b, spec.projection);
         let delta = pb - pa;
