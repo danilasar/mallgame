@@ -1,5 +1,9 @@
-use crate::objects::components::{ObjectPlacement, StableObjectId, WallMountedBounds};
-use crate::objects::prototypes::{BuildObjectId, ObjectCatalog, wall_mounted_spec};
+use crate::objects::components::{
+    ObjectPlacement, StableObjectId, Wallprint, derive_wallprint, wallprints_conflict,
+};
+use crate::objects::prototypes::{
+    BuildObjectId, ObjectCatalog, wall_mounted_spec, wall_occupancy_kind_for_prototype,
+};
 use crate::store::chunks::{StoreChunkCoord, StoreChunkKind};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -152,7 +156,7 @@ pub struct DomainCommandApplyParams<'w, 's> {
             >,
             Query<'w, 's, (Entity, &'static crate::objects::components::ObjectStableId)>,
             Query<'w, 's, &'static crate::store::WallSurface>,
-            Query<'w, 's, &'static WallMountedBounds>,
+            Query<'w, 's, &'static Wallprint>,
         ),
     >,
 }
@@ -253,7 +257,7 @@ fn apply_build_object(
         >,
         Query<(Entity, &crate::objects::components::ObjectStableId)>,
         Query<&crate::store::WallSurface>,
-        Query<&WallMountedBounds>,
+        Query<&Wallprint>,
     )>,
 ) -> DomainCommandResult {
     let Some(proto) = catalog.prototypes.get(&c.prototype_id) else {
@@ -336,20 +340,15 @@ fn apply_build_object(
                     reason: DomainCommandRejectReason::WallHeightOutOfBounds,
                 };
             }
+            let new_wallprint = derive_wallprint(
+                attachment,
+                spec.width,
+                spec.height,
+                wall_occupancy_kind_for_prototype(proto),
+            );
             let mounted_objects = set.p4();
-            let new_min = attachment.offset_along_segment - half_width;
-            let new_max = attachment.offset_along_segment + half_width;
-            let new_height_min = attachment.height_on_wall;
-            let new_height_max = attachment.height_on_wall + spec.height;
             for existing in mounted_objects.iter() {
-                if existing.segment_key != attachment.segment_key {
-                    continue;
-                }
-                let horizontal_overlap =
-                    new_min < existing.offset_max && new_max > existing.offset_min;
-                let vertical_overlap =
-                    new_height_min < existing.height_max && new_height_max > existing.height_min;
-                if horizontal_overlap && vertical_overlap {
+                if wallprints_conflict(&new_wallprint, existing) {
                     return DomainCommandResult::Rejected {
                         reason: DomainCommandRejectReason::WallMountedOverlap,
                     };
@@ -406,7 +405,7 @@ fn apply_move_object(
         >,
         Query<(Entity, &crate::objects::components::ObjectStableId)>,
         Query<&crate::store::WallSurface>,
-        Query<&WallMountedBounds>,
+        Query<&Wallprint>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
@@ -493,7 +492,7 @@ fn apply_rotate_object(
         >,
         Query<(Entity, &crate::objects::components::ObjectStableId)>,
         Query<&crate::store::WallSurface>,
-        Query<&WallMountedBounds>,
+        Query<&Wallprint>,
     )>,
     world_bounds: &crate::store::WorldBounds,
     store: &crate::store::area::StoreArea,
@@ -838,6 +837,8 @@ mod tests {
         let mut query = world.query::<(
             &crate::objects::components::ObjectStableId,
             &crate::objects::components::WallMounted,
+            &crate::objects::components::WallMountedPlacement,
+            &crate::objects::components::Wallprint,
             &crate::objects::components::WallMountedBounds,
             Option<&crate::objects::components::Footprint>,
             Option<&crate::objects::components::BlocksPlacement>,
@@ -845,9 +846,22 @@ mod tests {
             &crate::objects::components::StoreObject,
         )>();
         let found = query.iter(world).any(
-            |(stable_id, mounted, bounds, footprint, blocker, movable, _store_object)| {
+            |(
+                stable_id,
+                mounted,
+                mounted_placement,
+                wallprint,
+                bounds,
+                footprint,
+                blocker,
+                movable,
+                _store_object,
+            )| {
                 stable_id.0 == object_id
                     && mounted.attachment.segment_key == segment_key
+                    && mounted_placement.attachment.segment_key == segment_key
+                    && wallprint.rects.len() == 1
+                    && wallprint.rects[0].segment_key == segment_key
                     && bounds.segment_key == segment_key
                     && footprint.is_none()
                     && blocker.is_none()
@@ -856,5 +870,61 @@ mod tests {
         );
 
         assert!(found, "wall-mounted StoreObject was not spawned correctly");
+    }
+
+    #[test]
+    fn test_wall_mounted_build_rejects_overlapping_wallprint() {
+        let mut app = setup_test_app();
+        let existing_id = StableObjectId(6001);
+        let new_id = StableObjectId(6002);
+        let segment_key = crate::store::WallSegmentKey {
+            chunk: StoreChunkCoord { x: -1, y: -1 },
+            side: crate::store::StoreBoundarySide::Top,
+        };
+
+        app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+        app.world_mut().spawn(crate::store::WallSurface {
+            key: segment_key,
+            start: Vec2::new(-128.0, 0.0),
+            end: Vec2::new(0.0, 0.0),
+            length: 128.0,
+            height: 192.0,
+            thickness: 8.0,
+            normal: Vec2::Y,
+        });
+
+        let attachment = crate::objects::components::WallAttachmentPoint {
+            segment_key,
+            offset_along_segment: 64.0,
+            height_on_wall: 48.0,
+        };
+        app.world_mut().spawn((
+            crate::objects::components::ObjectStableId(existing_id),
+            crate::objects::components::StoreObject,
+            crate::objects::components::Wallprint {
+                rects: vec![crate::objects::components::derive_wallprint_rect(
+                    attachment,
+                    48.0,
+                    48.0,
+                    crate::objects::components::WallOccupancyKind::DecorativeOverlay,
+                )],
+            },
+        ));
+
+        app.world_mut()
+            .resource_mut::<DomainCommandQueue>()
+            .commands
+            .push_back(DomainCommand::BuildObject(BuildObjectCommand {
+                object_id: new_id,
+                prototype_id: BuildObjectId::new("wall.decor.placeholder"),
+                placement: crate::objects::components::ObjectPlacement::WallMounted { attachment },
+            }));
+
+        app.update();
+
+        let world = app.world_mut();
+        let mut query = world.query::<&crate::objects::components::ObjectStableId>();
+        let found = query.iter(world).any(|id| id.0 == new_id);
+        assert!(!found, "overlapping wall-mounted object should be rejected");
     }
 }

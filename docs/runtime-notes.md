@@ -28,7 +28,8 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - Derived store walls are cache/delta-synced, start at the outer top-right owned chunk, extend only through contiguous boundary runs, and must not become save authority.
 - Wall-mounted placement is now buildable for the MVP wall decor prototype: wall prototypes use `PointerTargets.wall_surface`, `WallAttachmentPoint`, `ObjectPlacement::WallMounted`, and the normal `BuildObjectRequested -> DomainCommand::BuildObject` path.
 - Wall-mounted objects are real `StoreObject` entities, but wall visuals/surfaces are still derived runtime entities and are not saved.
-- Wall-mounted objects are not floor objects: they have `WallMountedBounds`, no floor `Footprint`, no `BlocksPlacement`, and no `Movable`.
+- Wall-mounted objects are not floor objects: they have `WallMountedPlacement` and `Wallprint`, no floor `Footprint`, no `BlocksPlacement`, and no `Movable`.
+- `Footprint` is floor occupancy only. `Wallprint` is wall occupancy only. `StoreObject` no longer implies either one by itself.
 - `wall.window.basic_visual` is a visual-only wall-mounted window. It uses alpha/presentation semantics only and does not create a StoreArea hole, wall cutout, navigation portal, or collision change.
 
 ## Remaining Technical Debt
@@ -37,8 +38,8 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - `apply_domain_commands` will grow if new gameplay commands are added without further decomposition.
 - Camera clamping is pragmatic viewport-aware logic, not an exact geometry solver.
 - Stage 5B.1 must keep picking separation explicit: `WorldObject`, `WallSurface`, and `Exterior` are distinct interaction domains.
-- Wall-mounted move is not implemented. Wall-mounted objects are selectable, inspectable, and deletable, but they are not `Movable`.
-- Door/window cutouts, navigation portals, and wall occupancy beyond MVP rectangle overlap are still out of scope.
+- Wall-mounted move is not implemented by design. Wall-mounted objects are selectable, inspectable, deletable, and saveable, but they are not `Movable`; the floor `MoveTool` must not start for them. A future wall-move flow must use `WallSurface -> WallAttachmentPoint -> Wallprint` validation instead.
+- Door/window cutouts, navigation portals, and wall occupancy beyond MVP `WallprintRect` overlap are still out of scope.
 
 ## When Extending The Runtime
 

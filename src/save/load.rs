@@ -403,15 +403,29 @@ mod tests {
         let mut query = world.query::<(
             &ObjectStableId,
             &WallMounted,
+            &crate::objects::components::WallMountedPlacement,
+            &crate::objects::components::Wallprint,
             &WallMountedBounds,
             &ObjectPlacementComponent,
             Option<&Footprint>,
             &StoreObject,
         )>();
         let found = query.iter(world).any(
-            |(sid, mounted, bounds, placement, footprint, _store_object)| {
+            |(
+                sid,
+                mounted,
+                mounted_placement,
+                wallprint,
+                bounds,
+                placement,
+                footprint,
+                _store_object,
+            )| {
                 sid.0 == StableObjectId(3001)
                     && mounted.attachment.segment_key == segment_key
+                    && mounted_placement.attachment.segment_key == segment_key
+                    && wallprint.rects.len() == 1
+                    && wallprint.rects[0].segment_key == segment_key
                     && bounds.segment_key == segment_key
                     && footprint.is_none()
                     && matches!(

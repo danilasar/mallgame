@@ -348,35 +348,50 @@ pub fn spawn_store_object_from_prototype(
         ),
     ));
 
-    if !is_wall_mounted {
-        entity_commands.insert(Footprint::rectangle(proto.placement.footprint_half_extents));
-    }
+    match params.placement {
+        ObjectPlacement::Floor {
+            world_pos,
+            rotation_index,
+        } => {
+            entity_commands.insert(FloorPlacement {
+                world_pos: WorldPos(world_pos),
+                rotation_index,
+            });
+            entity_commands.insert(FloorFootprint::rectangle(
+                proto.placement.footprint_half_extents,
+            ));
+            entity_commands.insert(Movable);
 
-    if matches!(params.placement, ObjectPlacement::Floor { .. }) {
-        entity_commands.insert(Movable);
-    }
+            if proto.placement.placement_blocker {
+                entity_commands.insert(BlocksPlacement);
+            }
+        }
+        ObjectPlacement::WallMounted { attachment } => {
+            if let Some(spec) = wall_mounted_spec {
+                let wallprint = derive_wallprint(
+                    attachment,
+                    spec.width,
+                    spec.height,
+                    wall_occupancy_kind_for_prototype(proto),
+                );
+                let bounds = wallprint.rects[0];
 
-    if matches!(params.placement, ObjectPlacement::Floor { .. })
-        && proto.placement.placement_blocker
-    {
-        entity_commands.insert(BlocksPlacement);
-    }
-
-    if let (ObjectPlacement::WallMounted { attachment }, Some(spec)) =
-        (params.placement, wall_mounted_spec)
-    {
-        entity_commands.insert(WallMounted {
-            attachment,
-            width: spec.width,
-            height: spec.height,
-        });
-        entity_commands.insert(WallMountedBounds {
-            segment_key: attachment.segment_key,
-            offset_min: attachment.offset_along_segment - spec.width * 0.5,
-            offset_max: attachment.offset_along_segment + spec.width * 0.5,
-            height_min: attachment.height_on_wall,
-            height_max: attachment.height_on_wall + spec.height,
-        });
+                entity_commands.insert(WallMountedPlacement { attachment });
+                entity_commands.insert(WallMounted {
+                    attachment,
+                    width: spec.width,
+                    height: spec.height,
+                });
+                entity_commands.insert(wallprint);
+                entity_commands.insert(WallMountedBounds {
+                    segment_key: bounds.segment_key,
+                    offset_min: bounds.offset_min,
+                    offset_max: bounds.offset_max,
+                    height_min: bounds.height_min,
+                    height_max: bounds.height_max,
+                });
+            }
+        }
     }
 
     // Map capabilities to components
@@ -433,16 +448,19 @@ pub fn spawn_store_object_from_prototype(
         if rotation_index < rotatable.variants.len() {
             rotatable.current = rotation_index;
             let variant = &rotatable.variants[rotation_index];
-            commands.entity(entity).insert((
+            let mut entity_commands = commands.entity(entity);
+            entity_commands.insert((
                 Sprite {
                     image: variant.sprite.clone(),
                     custom_size: Some(proto.visuals.sprite_size),
                     ..default()
                 },
-                variant.footprint.clone(),
                 FootAnchor(variant.foot_anchor),
                 VisualOffset(variant.visual_offset),
             ));
+            if !is_wall_mounted {
+                entity_commands.insert(variant.footprint.clone());
+            }
         }
         commands.entity(entity).insert(rotatable);
     }
@@ -458,6 +476,18 @@ pub fn wall_mounted_spec(proto: &ObjectPrototype) -> Option<&WallMountedSpec> {
             None
         }
     })
+}
+
+pub fn wall_occupancy_kind_for_prototype(proto: &ObjectPrototype) -> WallOccupancyKind {
+    if proto
+        .capabilities
+        .iter()
+        .any(|cap| matches!(cap, ObjectCapabilitySpec::Window(_)))
+    {
+        WallOccupancyKind::Opening
+    } else {
+        WallOccupancyKind::DecorativeOverlay
+    }
 }
 
 pub fn spawn_ghost_from_prototype(
@@ -1056,7 +1086,9 @@ mod tests {
         assert!(world.entity(entity).contains::<NpcInteractionPoints>());
         assert!(!world.entity(entity).contains::<CheckoutPoint>());
         assert!(world.entity(entity).contains::<StoreObject>());
+        assert!(world.entity(entity).contains::<FloorPlacement>());
         assert!(world.entity(entity).contains::<Footprint>());
+        assert!(!world.entity(entity).contains::<Wallprint>());
         assert!(world.entity(entity).contains::<Movable>());
     }
 
@@ -1101,7 +1133,9 @@ mod tests {
 
         let world = app.world();
         assert!(world.entity(entity).contains::<StoreObject>());
+        assert!(world.entity(entity).contains::<WallMountedPlacement>());
         assert!(world.entity(entity).contains::<WallMounted>());
+        assert!(world.entity(entity).contains::<Wallprint>());
         assert!(world.entity(entity).contains::<WallMountedBounds>());
         assert!(!world.entity(entity).contains::<Footprint>());
         assert!(!world.entity(entity).contains::<BlocksPlacement>());

@@ -7,6 +7,8 @@ The scope is intentionally narrow: wall decor and a visual-only window are build
 ## Runtime Model
 
 Wall-mounted objects are real `StoreObject` entities. Wall visuals and wall surfaces are not.
+Being a real `StoreObject` does not mean the object is movable by the floor
+`MoveTool`.
 
 ```rust
 pub enum ObjectPlacement {
@@ -80,7 +82,9 @@ For wall-mounted placement it spawns:
 - `ObjectStableId`;
 - `ObjectPrototypeId`;
 - `ObjectPlacementComponent`;
+- `WallMountedPlacement`;
 - `WallMounted`;
+- `Wallprint`;
 - `Selectable`;
 - `Inspectable`;
 - `Interactive`;
@@ -123,7 +127,30 @@ Wall-mounted object:
   no Movable
 ```
 
-`WallMountedBounds` is the wall-space selection/occupancy geometry:
+`Wallprint` is the wall occupancy geometry:
+
+```rust
+pub struct Wallprint {
+    pub rects: Vec<WallprintRect>,
+}
+
+pub struct WallprintRect {
+    pub segment_key: WallSegmentKey,
+    pub offset_min: f32,
+    pub offset_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
+    pub occupancy_kind: WallOccupancyKind,
+}
+```
+
+`Wallprint` answers "what wall area does this object occupy?". It is derived from
+`WallMountedPlacement + WallMountedSpec`, uses `WallSegmentKey`, and is not save
+authority. Save/load stores `ObjectPlacement::WallMounted`; the factory derives
+the wallprint again.
+
+`WallMountedBounds` is a narrow runtime compatibility cache for current
+selection/inspection paths:
 
 ```rust
 pub struct WallMountedBounds {
@@ -136,6 +163,26 @@ pub struct WallMountedBounds {
 ```
 
 Floor placement validation and footprint overlays ignore wall-mounted objects.
+Wall validation uses `Wallprint` conflict policy, not floor `Footprint`.
+
+Current spatial split:
+
+```text
+Placement:
+  FloorPlacement / WallMountedPlacement
+
+Occupancy:
+  Footprint/FloorFootprint / Wallprint
+
+Access:
+  FloorClearance
+
+Selection:
+  current sprite or wall runtime bounds strategy
+
+Visual:
+  VisualSpec + presentation sync
+```
 
 ## Presentation
 
@@ -149,6 +196,37 @@ WallMounted.attachment
 ```
 
 `WorldPos` exists on the entity for Bevy transform and picking compatibility, but the authority is the `WallMounted` attachment.
+
+## Move Behavior
+
+Wall-mounted move is intentionally not implemented in Stage 5B.3/5B.3.1.
+
+Current behavior:
+
+```text
+Floor object:
+  has Movable
+  uses current MoveTool
+  moves by previewing/committing a new floor WorldPos
+
+Wall-mounted object:
+  no Movable
+  no floor Footprint
+  move action is ignored/rejected
+  remains selectable, inspectable, deletable, and saveable
+```
+
+This is expected. A wall-mounted move needs a separate placement strategy:
+
+```text
+hover WallSurface
+-> compute new WallAttachmentPoint
+-> validate Wallprint overlap
+-> commit new WallMountedPlacement
+```
+
+It must not reuse the floor MoveTool path, because that path assumes floor
+`WorldPos + Footprint` placement.
 
 ## Save / Load
 
@@ -210,8 +288,10 @@ Current coverage includes:
 
 - floor build regression;
 - wall-mounted build spawns a real `StoreObject`;
+- wall-mounted build adds `WallMountedPlacement` and `Wallprint`;
 - wall-mounted build does not add `BlocksPlacement` or `Movable`;
 - wall-mounted build does not add floor `Footprint`;
-- wall-mounted load restores `WallMountedBounds` and does not add floor `Footprint`;
+- wall-mounted overlap is rejected through `Wallprint` conflict checks;
+- wall-mounted load restores wall placement/occupancy components and does not add floor `Footprint`;
 - wall surface hit and attachment clamping;
 - save/load authority restoration for existing objects.

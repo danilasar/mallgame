@@ -50,8 +50,10 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 - `WorldPos` is simulation position.
 - `ProjectedPos` is isometric projection result.
 - `FootAnchor` marks sorting/picking anchor.
-- `Footprint` is local collision/placement geometry.
-- `StoreObject` marks entities that live inside the store and can be moved or deleted.
+- `Footprint` / `FloorFootprint` is local floor occupancy geometry.
+- `Wallprint` is wall occupancy geometry addressed by `WallSegmentKey`.
+- `FloorClearance` is future floor access reservation geometry, distinct from physical floor occupancy.
+- `StoreObject` marks real player-owned store objects. It does not imply floor placement, `Footprint`, or `Movable`.
 - `ObjectStableId` is a persistent ID for objects across save/load.
 - `Rotatable` carries rotation variants for sprite, footprint, foot anchor, and visual offset.
 - `StoreArea` owns bought `4x4` chunks.
@@ -113,7 +115,8 @@ Gameplay mutation authority:
 - `PointerTargets` now has dedicated `wall_surface` and `exterior` slots for safe picking separation.
 - Stage 5B.2 added `PlacementKind::WallMounted` as a preview branch in `BuildTool`: wall-mounted prototypes use `PointerTargets.wall_surface` and `WallAttachmentPoint`.
 - Stage 5B.3 makes wall-mounted placement buildable for the MVP wall decor/window prototypes. `BuildObjectRequested` and `DomainCommand::BuildObject` carry `ObjectPlacement`, and wall-mounted objects are spawned as real `StoreObject` entities with `WallMounted` attachment data.
-- Stage 5B.3.1 hardens wall-mounted geometry: wall-mounted objects use `WallMountedBounds`, do not receive floor `Footprint`, do not receive `BlocksPlacement`, and are not `Movable`.
+- Stage 5B.3.1 hardens spatial occupancy: floor objects use `FloorPlacement` and floor `Footprint`; wall-mounted objects use `WallMountedPlacement` and `Wallprint`. `WallMountedBounds` remains a narrow runtime cache while selection/highlight code migrates away from floor-footprint assumptions.
+- Wall-mounted objects are deliberately not moved by the current floor `MoveTool`. They are valid `StoreObject` entities for selection, inspection, delete, and save/load, but they do not get `Movable` until a wall-mounted move strategy exists.
 - `wall.window.basic_visual` is visual-only: it uses `Window { glass_alpha }` for presentation semantics and does not create wall cutouts, collision changes, or navigation portals.
 - The Ribbon exposes a `Walls` tab for the wall-mounted prototype. Wall-mounted objects are saved and loaded through `ObjectPlacement::WallMounted`; wall visuals and wall surfaces remain derived and unsaved.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
@@ -131,7 +134,7 @@ Gameplay mutation authority:
 - The overlay/highlight refactor is covered by unit tests for dirty entity collection, sprite color mapping, and available expansion chunk selection.
 - Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
 - Stage 5B.1 is covered by tests for boundary derivation, contiguous run generation, outer-corner anchoring, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
-- Stage 5B.3 is covered by a domain test that builds a wall-mounted `StoreObject` without floor blocker/move components.
+- Stage 5B.3/5B.3.1 is covered by tests that build a wall-mounted `StoreObject` without floor blocker/move components, derive wall occupancy, reject overlapping wallprints, and restore wall-mounted placement through save/load.
 
 ## Store Rules
 

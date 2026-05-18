@@ -173,7 +173,7 @@ The validation result is logged at startup. There is also a unit test for the mi
 The factory currently turns prototype data into runtime ECS components:
 
 - `PlacementSpec` → floor `Footprint` and optional `BlocksPlacement` for floor objects only
-- `WallMountedSpec` → `WallMounted` and `WallMountedBounds` for wall-mounted objects
+- `WallMountedSpec` → `WallMountedPlacement`, `WallMounted`, `Wallprint`, and a temporary `WallMountedBounds` cache for wall-mounted objects
 - `VisualSpec` → `Sprite`, `WorldPos`, `FootAnchor`, `VisualOffset`, `SortLayer`, `SortBias`
 - `ObjectCapabilitySpec` → `ProductContainer`, `CheckoutPoint`, `Decor`, `NpcInteractionPoints`, `WallMounted`, `Window`
 - `ObjectPrototype.id` → `ObjectPrototypeId`

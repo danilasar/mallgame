@@ -62,6 +62,21 @@ pub struct ObjectPlacementComponent {
     pub placement: ObjectPlacement,
 }
 
+#[derive(Component, Debug, Clone, Copy)]
+#[expect(
+    dead_code,
+    reason = "floor placement authority for Stage 5B.3.1 migration"
+)]
+pub struct FloorPlacement {
+    pub world_pos: WorldPos,
+    pub rotation_index: Option<usize>,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallMountedPlacement {
+    pub attachment: WallAttachmentPoint,
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct WallMounted {
     pub attachment: WallAttachmentPoint,
@@ -69,6 +84,111 @@ pub struct WallMounted {
     pub height: f32,
 }
 
+#[derive(Component, Debug, Clone, PartialEq)]
+pub struct Wallprint {
+    pub rects: Vec<WallprintRect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WallprintRect {
+    pub segment_key: WallSegmentKey,
+    pub offset_min: f32,
+    pub offset_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
+    pub occupancy_kind: WallOccupancyKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(dead_code, reason = "future wall occupancy policies")]
+pub enum WallOccupancyKind {
+    Solid,
+    Opening,
+    DecorativeOverlay,
+    ServiceMount,
+    Debug,
+}
+
+pub fn derive_wallprint_rect(
+    attachment: WallAttachmentPoint,
+    width: f32,
+    height: f32,
+    occupancy_kind: WallOccupancyKind,
+) -> WallprintRect {
+    let half_width = width * 0.5;
+    WallprintRect {
+        segment_key: attachment.segment_key,
+        offset_min: attachment.offset_along_segment - half_width,
+        offset_max: attachment.offset_along_segment + half_width,
+        height_min: attachment.height_on_wall,
+        height_max: attachment.height_on_wall + height,
+        occupancy_kind,
+    }
+}
+
+pub fn derive_wallprint(
+    attachment: WallAttachmentPoint,
+    width: f32,
+    height: f32,
+    occupancy_kind: WallOccupancyKind,
+) -> Wallprint {
+    Wallprint {
+        rects: vec![derive_wallprint_rect(
+            attachment,
+            width,
+            height,
+            occupancy_kind,
+        )],
+    }
+}
+
+pub fn wallprint_rects_conflict(a: &WallprintRect, b: &WallprintRect) -> bool {
+    if a.occupancy_kind == WallOccupancyKind::Debug || b.occupancy_kind == WallOccupancyKind::Debug
+    {
+        return false;
+    }
+    if a.segment_key != b.segment_key {
+        return false;
+    }
+
+    let horizontal_overlap = a.offset_min < b.offset_max && a.offset_max > b.offset_min;
+    let vertical_overlap = a.height_min < b.height_max && a.height_max > b.height_min;
+    horizontal_overlap && vertical_overlap
+}
+
+pub fn wallprints_conflict(a: &Wallprint, b: &Wallprint) -> bool {
+    a.rects.iter().any(|a_rect| {
+        b.rects
+            .iter()
+            .any(|b_rect| wallprint_rects_conflict(a_rect, b_rect))
+    })
+}
+
+#[derive(Component, Debug, Clone)]
+#[allow(dead_code)]
+pub struct FloorClearance {
+    pub local_polygon: Vec<Vec2>,
+    pub reason: ClearanceReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+#[allow(
+    clippy::enum_variant_names,
+    reason = "domain names intentionally share Access suffix"
+)]
+pub enum ClearanceReason {
+    DoorAccess,
+    CheckoutAccess,
+    ContainerAccess,
+    ServiceAccess,
+}
+
+/// Runtime wall-rect cache used by current selection/inspection paths.
+///
+/// `Wallprint` is the authoritative wall occupancy geometry. This component is
+/// kept as a narrow compatibility cache while presentation code is migrated to
+/// wallprint-driven selection/highlight strategies.
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct WallMountedBounds {
     pub segment_key: WallSegmentKey,
@@ -148,6 +268,12 @@ impl Footprint {
     }
 }
 
+/// Floor occupancy geometry. Kept as an alias while the codebase migrates from
+/// the older `Footprint` name.
+pub type FloorFootprint = Footprint;
+
+/// Floor placement blocker. The historical name is kept for compatibility, but
+/// it must only be used by floor validation.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BlocksPlacement;
 
@@ -258,6 +384,84 @@ pub struct ExteriorInteractive;
 #[derive(Component, Debug, Clone, Copy)]
 #[allow(dead_code)]
 pub struct ExteriorVisual;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{StoreBoundarySide, StoreChunkCoord};
+
+    fn test_segment_key() -> WallSegmentKey {
+        WallSegmentKey {
+            chunk: StoreChunkCoord { x: -1, y: -1 },
+            side: StoreBoundarySide::Top,
+        }
+    }
+
+    #[test]
+    fn wallprint_conflict_requires_same_segment_and_overlapping_rects() {
+        let key = test_segment_key();
+        let a = derive_wallprint(
+            WallAttachmentPoint {
+                segment_key: key,
+                offset_along_segment: 50.0,
+                height_on_wall: 20.0,
+            },
+            20.0,
+            10.0,
+            WallOccupancyKind::Solid,
+        );
+        let overlapping = derive_wallprint(
+            WallAttachmentPoint {
+                segment_key: key,
+                offset_along_segment: 55.0,
+                height_on_wall: 24.0,
+            },
+            20.0,
+            10.0,
+            WallOccupancyKind::Opening,
+        );
+        let separated = derive_wallprint(
+            WallAttachmentPoint {
+                segment_key: key,
+                offset_along_segment: 90.0,
+                height_on_wall: 20.0,
+            },
+            20.0,
+            10.0,
+            WallOccupancyKind::Solid,
+        );
+
+        assert!(wallprints_conflict(&a, &overlapping));
+        assert!(!wallprints_conflict(&a, &separated));
+    }
+
+    #[test]
+    fn debug_wallprint_rects_do_not_block() {
+        let key = test_segment_key();
+        let solid = derive_wallprint(
+            WallAttachmentPoint {
+                segment_key: key,
+                offset_along_segment: 50.0,
+                height_on_wall: 20.0,
+            },
+            20.0,
+            10.0,
+            WallOccupancyKind::Solid,
+        );
+        let debug = derive_wallprint(
+            WallAttachmentPoint {
+                segment_key: key,
+                offset_along_segment: 50.0,
+                height_on_wall: 20.0,
+            },
+            20.0,
+            10.0,
+            WallOccupancyKind::Debug,
+        );
+
+        assert!(!wallprints_conflict(&solid, &debug));
+    }
+}
 
 // Stage 5A Capabilities
 
