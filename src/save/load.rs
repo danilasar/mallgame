@@ -106,8 +106,7 @@ pub fn reset_tool_session(
     next_mode: &mut NextState<ToolMode>,
     selection: &mut crate::tools::SelectionState,
     build_selection: &mut BuildSelectionState,
-)
-{
+) {
     session.active = None;
     return_state.previous = None;
     next_mode.set(ToolMode::Cursor);

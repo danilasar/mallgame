@@ -1,8 +1,8 @@
 use bevy::prelude::*;
-use std::error::Error;
-use std::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 
 use super::components::*;
 use super::rotation::{Rotatable, RotationVariant};

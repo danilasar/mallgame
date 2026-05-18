@@ -1,7 +1,7 @@
 use crate::save::types::SaveGame;
 use std::error::Error;
-use std::fs;
 use std::fmt;
+use std::fs;
 use std::io::Write;
 use std::path::Path;
 
@@ -34,10 +34,7 @@ impl fmt::Display for SaveIoError {
 
 impl Error for SaveIoError {}
 
-pub fn write_save_file_atomic(
-    path: impl AsRef<Path>,
-    save: &SaveGame,
-) -> Result<(), SaveIoError> {
+pub fn write_save_file_atomic(path: impl AsRef<Path>, save: &SaveGame) -> Result<(), SaveIoError> {
     let path = path.as_ref();
     let json = serde_json::to_string_pretty(save).map_err(SaveIoError::Serialize)?;
 

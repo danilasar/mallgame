@@ -67,10 +67,27 @@ pub(crate) struct ContextualWorldWidgetsParams<'w, 's> {
     session: Res<'w, crate::tools::ToolSessionState>,
     targets: Res<'w, crate::input::PointerTargets>,
     projection: Res<'w, IsoProjection>,
-    widgets: Query<'w, 's, (Entity, &'static mut RotateWorldWidget, &'static mut Node, &'static Interaction)>,
+    widgets: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static mut RotateWorldWidget,
+            &'static mut Node,
+            &'static Interaction,
+        ),
+    >,
     fonts: Res<'w, UiFonts>,
     layer: Query<'w, 's, Entity, With<WorldWidgetsLayer>>,
-    objects: Query<'w, 's, (&'static WorldPos, &'static Footprint, Option<&'static Rotatable>)>,
+    objects: Query<
+        'w,
+        's,
+        (
+            &'static WorldPos,
+            &'static Footprint,
+            Option<&'static Rotatable>,
+        ),
+    >,
     camera_query: Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<Camera2d>>,
 }
 

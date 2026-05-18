@@ -27,6 +27,12 @@ This project is a Rust + Bevy 2D isometric prototype for a freeform store builde
 12. Domain event consumers (`PostDomainApply`)
 13. presentation sync and overlays
 
+## Runtime Performance Notes
+
+- `StoreOverlay` keeps a cache of chunk overlay entities and only refreshes the previous/current hovered expansion chunk instead of rebuilding all overlays every frame.
+- `Highlight` updates are delta-driven: only previously/currently relevant entities are touched, not every `Interactive` entity in the world.
+- `apply_domain_commands` is still the largest maintainability hotspot in the domain layer, but it is isolated behind the command boundary.
+
 ## Module Map
 
 - `src/main.rs`: app setup and plugin order.
@@ -93,10 +99,28 @@ Gameplay mutation authority:
 - Tool sessions are preview-based for build and move.
 - Selection and a real `ObjectInspector` are implemented.
 - The active build selection surface is the Ribbon; build-panel terminology is obsolete in the current codebase.
+- Stage 5A catalog is already componentized: `ObjectPrototype` carries `display`, `catalog`, `placement`, `visuals`, `rotation`, `capabilities`, and `initial_state`.
+- `ObjectCatalogSpec` is the Ribbon-facing metadata layer: `category`, `ribbon_tab`, `ribbon_group`, `sort_order`, and `availability`.
+- Stage 5A capabilities currently map to typed ECS components: `ProductContainer`, `CheckoutPoint`, `Decor`, and `NpcInteractionPoints`.
+- `NpcInteractionPoints` is a placeholder affordance layer for future NPCs, not NPC logic.
+- Current sample prototypes are `fixture.shelf.basic`, `service.checkout.basic`, and `decor.plant.tree`, with save/load compatibility aliases `chair`, `table`, and `tree`.
+- Catalog validation checks for non-empty display names and capability/interaction-point invariants:
+  - `ProductContainer` requires at least one `BrowseProducts` NPC interaction point.
+  - `CheckoutPoint` requires at least one `Checkout` NPC interaction point.
 - Store coverage validation is sampled via `StoreArea::contains_polygon_sampled`.
 - Camera clamp is viewport-aware and clamps by projected `WorldBounds`.
 - Domain mutations are unified behind the `DomainCommand` system.
 - Load/reset should clear UI/tool runtime state, including ribbon/build selection, not only gameplay sessions.
+- Store overlays use a cache keyed by chunk coordinate.
+- Highlight presentation keeps a small runtime state and writes colors only for dirty entities.
+
+## Test Coverage
+
+- Store chunk rules are covered by unit tests for initial ownership, adjacency, hole prevention, and purchase validation.
+- Placement validation is covered by sampled coverage tests and collision rejection tests.
+- Save/load is covered by an authority-restoration test.
+- The overlay/highlight refactor is covered by unit tests for dirty entity collection, sprite color mapping, and available expansion chunk selection.
+- Catalog validation is covered by tests for missing browse points and for factory mapping of capabilities into ECS components.
 
 ## Store Rules
 
@@ -112,3 +136,4 @@ Gameplay mutation authority:
 - NPC simulation (pathfinding and task planning reacting to `DomainEvents`).
 - Economy system and currency-based validation in commands.
 - Save migrations and multiple slots.
+- Further decomposition of `DomainCommand` apply paths if new gameplay commands add more branching.

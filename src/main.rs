@@ -26,6 +26,7 @@ fn main() {
         .init_resource::<PointerTargets>()
         .init_resource::<PointerDragState>()
         .init_resource::<DomainCommandQueue>()
+        .init_resource::<HighlightRuntimeState>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Continuous 2D Isometric Tools Prototype".to_owned(),
@@ -127,6 +128,7 @@ fn main() {
             PostUpdate,
             (
                 update_highlight_intents,
+                ApplyDeferred,
                 sync_visual_transform.before(TransformSystems::Propagate),
                 update_highlight_visuals.after(sync_visual_transform),
                 update_contextual_world_widgets.after(sync_visual_transform),

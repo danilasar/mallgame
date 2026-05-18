@@ -146,7 +146,9 @@ pub(crate) struct MoveToolParams<'w, 's> {
 }
 
 pub fn move_tool_system(mut params: MoveToolParams) {
-    params.tool.sync_from_pointer(&params.pointer, &params.targets);
+    params
+        .tool
+        .sync_from_pointer(&params.pointer, &params.targets);
     if !params.gate.can_use_world() {
         return;
     }

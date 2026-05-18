@@ -41,11 +41,13 @@ impl Plugin for BuildToolPlugin {
     }
 }
 
-fn apply_select_build_prototype_requests(
-    mut params: SelectBuildPrototypeParams,
-) {
+fn apply_select_build_prototype_requests(mut params: SelectBuildPrototypeParams) {
     for request in params.requests.read() {
-        if !params.catalog.prototypes.contains_key(&request.prototype_id) {
+        if !params
+            .catalog
+            .prototypes
+            .contains_key(&request.prototype_id)
+        {
             warn!(
                 "Request to select unknown prototype: {:?}",
                 request.prototype_id
@@ -91,9 +93,7 @@ struct SelectBuildPrototypeParams<'w, 's> {
     session: ResMut<'w, ToolSessionState>,
 }
 
-fn start_build_session(
-    mut params: BuildSessionParams,
-) {
+fn start_build_session(mut params: BuildSessionParams) {
     spawn_build_session(
         &mut params.commands,
         &params.asset_server,
@@ -167,10 +167,10 @@ fn cleanup_build_session(mut commands: Commands, mut session: ResMut<ToolSession
     );
 }
 
-pub fn build_tool_system(
-    mut params: BuildToolParams,
-) {
-    params.tool.sync_from_pointer(&params.pointer, &params.targets);
+pub fn build_tool_system(mut params: BuildToolParams) {
+    params
+        .tool
+        .sync_from_pointer(&params.pointer, &params.targets);
 
     if !params.gate.can_use_world() {
         return;
@@ -194,10 +194,7 @@ pub fn build_tool_system(
             build_session.awaiting_fresh_click = false;
         }
 
-        if let Ok(mut world_pos) = params
-            .ghost_positions
-            .get_mut(build_session.preview_entity)
-        {
+        if let Ok(mut world_pos) = params.ghost_positions.get_mut(build_session.preview_entity) {
             world_pos.0 = params.pointer.world_pos;
         }
 

@@ -65,14 +65,18 @@ pub(crate) struct ExpansionToolParams<'w, 's> {
 }
 
 pub fn expansion_tool_system(mut params: ExpansionToolParams) {
-    params.tool.sync_from_pointer(&params.pointer, &params.targets);
+    params
+        .tool
+        .sync_from_pointer(&params.pointer, &params.targets);
 
     if !params.gate.can_use_world() {
         return;
     }
 
     if params.gate.cancel_requested {
-        params.return_to_previous.write(ReturnToPreviousToolRequested);
+        params
+            .return_to_previous
+            .write(ReturnToPreviousToolRequested);
         return;
     }
 

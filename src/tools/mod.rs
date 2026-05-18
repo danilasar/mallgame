@@ -22,8 +22,8 @@ pub use preview::*;
 pub use selection::*;
 pub use session::*;
 
-use bevy::prelude::*;
 use bevy::ecs::system::SystemParam;
+use bevy::prelude::*;
 
 use crate::input::{InputAction, InputActionState};
 use crate::objects::components::*;
@@ -223,9 +223,7 @@ pub enum ObjectActionOrigin {
     Hotkey,
 }
 
-pub fn handle_object_action_requests(
-    mut params: ObjectActionRequestParams,
-) {
+pub fn handle_object_action_requests(mut params: ObjectActionRequestParams) {
     for request in params.requests.read() {
         info!("ObjectActionRequested: {:?}", request);
         match request.action {
