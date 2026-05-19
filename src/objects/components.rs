@@ -540,10 +540,14 @@ pub struct NpcInteractionPoints {
     pub points: Vec<NpcInteractionPoint>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct NpcInteractionPoint {
-    pub local_pos: Vec2,
-    pub facing: Vec2,
-    pub kind: super::prototypes::NpcInteractionKind,
+    pub id: String,
+    pub kind: crate::npc::anchor::NpcAnchorKind,
+    pub local_offset: Vec2,
+    pub facing: Option<crate::npc::direction::NpcDirection>,
+    pub allowed_roles: Vec<crate::npc::job::NpcRole>,
+    pub reservation_policy: crate::npc::anchor::AnchorReservationPolicy,
+    pub preferred_animation: Option<crate::npc::archetype::NpcAnimActionId>,
 }

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 use crate::npc::direction::NpcDirection;
-use crate::npc::task::{NpcRole, NpcTaskProfileSpec};
+use crate::npc::job::{NpcRole, NpcJobProfileSpec};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct NpcArchetypeId(pub String);
@@ -15,7 +15,7 @@ pub struct NpcArchetypeSpec {
     pub movement: NpcMovementSpec,
     pub visuals: NpcVisualSpec,
     pub picking: NpcPickingSpec,
-    pub task_profile: NpcTaskProfileSpec,
+    pub job_profile: NpcJobProfileSpec,
 }
 
 pub struct NpcMovementSpec {

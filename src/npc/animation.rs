@@ -66,4 +66,3 @@ pub fn resolve_npc_animation_sprite(
         player.current_direction = direction;
     }
 }
-

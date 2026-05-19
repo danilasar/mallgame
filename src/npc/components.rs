@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use std::collections::VecDeque;
 use crate::npc::direction::NpcDirection;
-use crate::npc::task::{NpcRole, NpcTask};
+use crate::npc::job::{NpcRole, NpcJob};
 use crate::npc::archetype::NpcArchetypeId;
 
 #[derive(Component)]
@@ -33,13 +33,13 @@ pub enum NpcLocomotionState {
 }
 
 #[derive(Component, Default)]
-pub struct PersonalTaskQueue {
-    pub tasks: VecDeque<NpcTask>,
+pub struct PersonalJobQueue {
+    pub jobs: VecDeque<NpcJob>,
 }
 
 #[derive(Component, Default)]
-pub struct AssignedTaskQueue {
-    pub tasks: VecDeque<NpcTask>,
+pub struct AssignedJobQueue {
+    pub jobs: VecDeque<NpcJob>,
 }
 
 #[derive(Component)]
@@ -49,6 +49,11 @@ pub struct NpcPickable;
 pub struct NpcPickBounds {
     pub offset: Vec2,
     pub size: Vec2,
+}
+
+#[derive(Component)]
+pub struct PointerOccluder {
+    pub blocks_pointer_to_lower_priority_targets: bool,
 }
 
 #[derive(Component)]

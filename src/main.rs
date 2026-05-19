@@ -7,10 +7,12 @@ mod save;
 mod store;
 mod tools;
 mod ui;
+mod navigation;
 
 use bevy::prelude::*;
 use input::*;
 use npc::NpcPlugin;
+use navigation::NavigationPlugin;
 use objects::components::*;
 use objects::prototypes::*;
 use objects::rotation::ObjectRotationPlugin;
@@ -52,6 +54,7 @@ fn main() {
             StoreOverlayPlugin,
             SaveLoadPlugin,
             NpcPlugin,
+            NavigationPlugin,
         ))
         .add_plugins((
             ToolCorePlugin,

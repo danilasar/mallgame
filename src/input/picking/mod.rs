@@ -40,6 +40,7 @@ pub fn update_hovered_object(
             Option<&WallSurface>,
             Option<&Sprite>,
             Option<&crate::npc::components::NpcPickBounds>,
+            Option<&crate::npc::components::PointerOccluder>,
             &Transform,
             &SortLayer,
             &InteractionRole,
@@ -74,7 +75,7 @@ pub fn update_hovered_object(
     let mut hit_wall_surface: Option<(Entity, f32)> = None;
     let mut hit_exterior: Option<(Entity, f32)> = None;
     let mut hit_debug: Option<(Entity, f32)> = None;
-    let mut hit_npc: Option<(Entity, f32)> = None;
+    let mut hit_npc: Option<(Entity, f32, bool)> = None; // (entity, rank, occludes)
 
     for (
         entity,
@@ -84,6 +85,7 @@ pub fn update_hovered_object(
         wall_surface,
         sprite,
         npc_bounds,
+        pointer_occluder,
         transform,
         layer,
         role,
@@ -113,6 +115,8 @@ pub fn update_hovered_object(
 
         if hit {
             let rank = layer.base_z() + transform.translation.z;
+            let occludes = pointer_occluder.map_or(false, |o| o.blocks_pointer_to_lower_priority_targets);
+
             match role {
                 InteractionRole::WorldObject if hit_object.is_none_or(|(_, r)| rank > r) => {
                     hit_object = Some((entity, rank));
@@ -126,8 +130,8 @@ pub fn update_hovered_object(
                 InteractionRole::Exterior if hit_exterior.is_none_or(|(_, r)| rank > r) => {
                     hit_exterior = Some((entity, rank));
                 }
-                InteractionRole::Npc if hit_npc.is_none_or(|(_, r)| rank > r) => {
-                    hit_npc = Some((entity, rank));
+                InteractionRole::Npc if hit_npc.is_none_or(|(_, r, _)| rank > r) => {
+                    hit_npc = Some((entity, rank, occludes));
                 }
                 InteractionRole::Overlay | InteractionRole::Debug
                     if hit_debug.is_none_or(|(_, r)| rank > r) =>
@@ -144,7 +148,12 @@ pub fn update_hovered_object(
     targets.wall_surface = hit_wall_surface.map(|(e, _)| e);
     targets.exterior = hit_exterior.map(|(e, _)| e);
     targets.debug = hit_debug.map(|(e, _)| e);
-    targets.npc = hit_npc.map(|(e, _)| e);
+    targets.npc = hit_npc.map(|(e, _, _)| e);
+
+    // Occlusion logic: if NPC hit and it occludes, lower priority roles are hidden
+    if let Some((_, _, true)) = hit_npc {
+        targets.world_object = None;
+    }
 
     // Priority for pointer.hovered_entity
     if let Some(widget) = targets.world_widget {

@@ -1,6 +1,6 @@
 pub mod direction;
 pub mod archetype;
-pub mod task;
+pub mod job;
 pub mod components;
 pub mod route;
 pub mod locomotion;
@@ -8,26 +8,31 @@ pub mod animation;
 pub mod picking;
 pub mod presentation;
 pub mod debug;
+pub mod anchor;
+pub mod interaction;
 
 use bevy::prelude::*;
 use crate::objects::components::*;
 use crate::npc::components::*;
 use crate::npc::archetype::NpcCatalog;
-use crate::npc::task::{SpawnNpcRequested, DespawnNpcRequested, NpcRole};
+use crate::npc::job::{SpawnNpcRequested, DespawnNpcRequested, NpcRole};
+use crate::npc::anchor::NpcAnchorCache;
 
 pub struct NpcPlugin;
 
 impl Plugin for NpcPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<archetype::NpcCatalog>()
-            .add_message::<task::SpawnNpcRequested>()
-            .add_message::<task::PushNpcTaskRequested>()
-            .add_message::<task::DespawnNpcRequested>()
+            .init_resource::<NpcAnchorCache>()
+            .add_message::<job::SpawnNpcRequested>()
+            .add_message::<job::PushNpcJobRequested>()
+            .add_message::<job::DespawnNpcRequested>()
             .add_systems(Update, (
                 handle_spawn_npc_requested,
                 handle_despawn_npc_requested,
-                task::handle_push_npc_task_requested,
-                task::start_next_npc_task,
+                job::handle_push_npc_job_requested,
+                job::start_next_npc_job,
+                anchor::anchor_lifecycle_system,
             ))
             .add_systems(Update, (
                 locomotion::advance_npc_locomotion,
@@ -66,7 +71,7 @@ pub fn handle_spawn_npc_requested(
                 snap_epsilon: archetype.movement.snap_epsilon,
                 state: NpcLocomotionState::Idle,
             },
-            PersonalTaskQueue::default(),
+            PersonalJobQueue::default(),
             InteractionRole::Npc,
             Interactive,
             SortLayer::Characters,
@@ -77,7 +82,7 @@ pub fn handle_spawn_npc_requested(
         )).id();
 
         if role != NpcRole::Customer {
-            commands.entity(root).insert(AssignedTaskQueue::default());
+            commands.entity(root).insert(AssignedJobQueue::default());
         }
 
         if archetype.picking.pickable {

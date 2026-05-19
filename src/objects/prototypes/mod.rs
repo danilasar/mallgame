@@ -180,6 +180,7 @@ pub enum ObjectCapabilitySpec {
     Doorway(DoorwaySpec),
     DoorMovable,
     WallOpening(WallOpeningSpec),
+    NavigationPortal(crate::navigation::portal::NavigationPortalSpec),
 }
 
 /// Prototype-level opening spec. Determines the visible cutout in the wall surface.
@@ -293,15 +294,13 @@ pub struct NpcInteractionPointsSpec {
 
 #[derive(Debug, Clone)]
 pub struct NpcInteractionPointSpec {
-    pub local_pos: Vec2,
-    pub facing: Vec2, // Direction vector
-    pub kind: NpcInteractionKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NpcInteractionKind {
-    BrowseProducts,
-    Checkout,
+    pub id: String,
+    pub kind: crate::npc::anchor::NpcAnchorKind,
+    pub local_offset: Vec2,
+    pub facing: Option<crate::npc::direction::NpcDirection>,
+    pub allowed_roles: Vec<crate::npc::job::NpcRole>,
+    pub reservation_policy: crate::npc::anchor::AnchorReservationPolicy,
+    pub preferred_animation: Option<crate::npc::archetype::NpcAnimActionId>,
 }
 
 #[derive(Debug, Clone)]
@@ -482,9 +481,13 @@ pub fn spawn_store_object_from_prototype(
                         .points
                         .iter()
                         .map(|p| NpcInteractionPoint {
-                            local_pos: p.local_pos,
-                            facing: p.facing,
+                            id: p.id.clone(),
                             kind: p.kind,
+                            local_offset: p.local_offset,
+                            facing: p.facing,
+                            allowed_roles: p.allowed_roles.clone(),
+                            reservation_policy: p.reservation_policy,
+                            preferred_animation: p.preferred_animation.clone(),
                         })
                         .collect(),
                 });
@@ -533,6 +536,9 @@ pub fn spawn_store_object_from_prototype(
                     // so this path is unreachable for valid prototypes. Object spawns
                     // without WallOpeningComponent rather than panicking.
                 }
+            }
+            ObjectCapabilitySpec::NavigationPortal(_) => {
+                // Derived logic happens in anchor.rs lifecycle system
             }
         }
     }
@@ -772,9 +778,15 @@ pub fn setup_object_catalog(mut commands: Commands) {
                 }),
                 ObjectCapabilitySpec::NpcInteractionPoints(NpcInteractionPointsSpec {
                     points: vec![NpcInteractionPointSpec {
-                        local_pos: Vec2::new(0.0, 32.0),
-                        facing: Vec2::new(0.0, -1.0),
-                        kind: NpcInteractionKind::BrowseProducts,
+                        id: "browse".to_string(),
+                        kind: crate::npc::anchor::NpcAnchorKind::BrowseProducts,
+                        local_offset: Vec2::new(0.0, 32.0),
+                        facing: Some(crate::npc::direction::NpcDirection::S),
+                        allowed_roles: vec![crate::npc::job::NpcRole::Customer],
+                        reservation_policy: crate::npc::anchor::AnchorReservationPolicy::None,
+                        preferred_animation: Some(crate::npc::archetype::NpcAnimActionId(
+                            "customer.browse_shelf".to_string(),
+                        )),
                     }],
                 }),
             ],
@@ -822,9 +834,15 @@ pub fn setup_object_catalog(mut commands: Commands) {
                 }),
                 ObjectCapabilitySpec::NpcInteractionPoints(NpcInteractionPointsSpec {
                     points: vec![NpcInteractionPointSpec {
-                        local_pos: Vec2::new(0.0, 48.0),
-                        facing: Vec2::new(0.0, -1.0),
-                        kind: NpcInteractionKind::Checkout,
+                        id: "checkout".to_string(),
+                        kind: crate::npc::anchor::NpcAnchorKind::CheckoutCustomer,
+                        local_offset: Vec2::new(0.0, 48.0),
+                        facing: Some(crate::npc::direction::NpcDirection::S),
+                        allowed_roles: vec![crate::npc::job::NpcRole::Customer],
+                        reservation_policy: crate::npc::anchor::AnchorReservationPolicy::SingleOccupant,
+                        preferred_animation: Some(crate::npc::archetype::NpcAnimActionId(
+                            "customer.pay".to_string(),
+                        )),
                     }],
                 }),
             ],
@@ -1055,6 +1073,16 @@ pub fn setup_object_catalog(mut commands: Commands) {
                     glass_color: None,
                     frame_color: None,
                 }),
+                ObjectCapabilitySpec::NavigationPortal(crate::navigation::portal::NavigationPortalSpec {
+                    kind: crate::navigation::portal::NavigationPortalKind::Doorway,
+                    interior_local_offset: Vec2::new(0.0, 32.0),
+                    exterior_local_offset: Vec2::new(0.0, -32.0),
+                    allowed_roles: vec![
+                        crate::npc::job::NpcRole::Customer,
+                        crate::npc::job::NpcRole::Staff,
+                    ],
+                    bidirectional: true,
+                }),
             ],
             initial_state: ObjectInitialStateSpec::None,
         },
@@ -1107,9 +1135,9 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                 ObjectCapabilitySpec::ProductContainer(_) => {
                     let has_browse = proto.capabilities.iter().any(|c| {
                         if let ObjectCapabilitySpec::NpcInteractionPoints(p) = c {
-                            p.points
-                                .iter()
-                                .any(|pt| pt.kind == NpcInteractionKind::BrowseProducts)
+                            p.points.iter().any(|pt| {
+                                pt.kind == crate::npc::anchor::NpcAnchorKind::BrowseProducts
+                            })
                         } else {
                             false
                         }
@@ -1121,16 +1149,16 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                 ObjectCapabilitySpec::CheckoutPoint(_) => {
                     let has_checkout = proto.capabilities.iter().any(|c| {
                         if let ObjectCapabilitySpec::NpcInteractionPoints(p) = c {
-                            p.points
-                                .iter()
-                                .any(|pt| pt.kind == NpcInteractionKind::Checkout)
+                            p.points.iter().any(|pt| {
+                                pt.kind == crate::npc::anchor::NpcAnchorKind::CheckoutCustomer
+                            })
                         } else {
                             false
                         }
                     });
                     if !has_checkout {
                         errors.push(format!(
-                            "Prototype {:?} has CheckoutPoint but no Checkout interaction point",
+                            "Prototype {:?} has CheckoutPoint but no CheckoutCustomer interaction point",
                             proto.id
                         ));
                     }
