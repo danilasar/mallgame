@@ -138,6 +138,15 @@ Gameplay mutation authority:
 - Stage 5B.1 is covered by tests for boundary derivation, outer-line generation with gaps, wall helpers, and wall picking. Exterior content is still just a component/target foundation.
 - Stage 5B.3/5B.3.1 is covered by tests that build a wall-mounted `StoreObject` without floor blocker/move components, derive wall occupancy, reject overlapping wallprints, and restore wall-mounted placement through save/load.
 - Stage 5B.5.1 hardening is covered by tests for door component invariants, door move routing, door self-ignore, access-zone build/move/delete lifecycle, non-door wall object regressions, and doorway save/load reconstruction.
+- Stage 6A/6B/6C/6D/6E introduces the NPC Agent foundation, Navigation substrate, Semantic Anchors, and Doorway Portals.
+
+## NPC and Navigation (Stage 6)
+
+- **NPC Agent Foundation**: NPCs are transient runtime agents with role-based `JobQueues` (Personal and Assigned). They follow an 8-direction animation model and use `JobKindId` for data-driven task execution.
+- **Navigation Substrate**: A sampled lattice graph (`NavigationGraph`) provides walkability information based on `StoreArea` and static floor blockers. A* shortest-path routing handles movement in continuous world coordinates.
+- **NpcAnchor Model**: Semantic targeting system providing stable target points (e.g., "browse here"). Anchors are derived from objects and doorways and stored in a runtime cache (`NpcAnchorCache`).
+- **Navigation Portals**: Doorways can opt-in to portal capability, creating synthetic edges in the navigation graph to allow traversal between interior and exterior sides.
+- **Object Interaction Anchors**: Functional anchors derived from `NpcInteractionPointsSpec` in object prototypes (shelves, checkouts) to support functional NPC behavior.
 
 ## Store Rules
 

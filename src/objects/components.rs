@@ -213,6 +213,17 @@ pub struct WallOpeningComponent {
     pub frame_color: Option<Color>,
 }
 
+/// Derived visual extent of a wall-mounted object. Rederived from `WallMountedVisualSpec` +
+/// `ObjectPlacement::WallMounted` at spawn/move/load. Not saved.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct WallVisualBounds {
+    pub segment_key: WallSegmentKey,
+    pub offset_min: f32,
+    pub offset_max: f32,
+    pub height_min: f32,
+    pub height_max: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct DerivedDoorPlacement {
     pub wallprint: Wallprint,

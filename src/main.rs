@@ -65,6 +65,7 @@ fn main() {
             ExpansionToolPlugin,
             ObjectRotationPlugin,
             FootprintOverlayPlugin,
+            WallDebugOverlayPlugin,
         ))
         .configure_sets(
             Update,

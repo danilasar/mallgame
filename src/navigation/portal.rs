@@ -39,20 +39,42 @@ pub struct PortalTraversalPolicy {
     pub bidirectional: bool,
 }
 
+pub fn derive_navigation_portal(
+    owner_id: StableObjectId,
+    spec: &NavigationPortalSpec,
+    interior_anchor: NpcAnchorId,
+    exterior_anchor: NpcAnchorId,
+) -> NavigationPortal {
+    NavigationPortal {
+        id: NavigationPortalId(0), // Placeholder ID, real one would be unique
+        owner: owner_id,
+        kind: spec.kind,
+        a: interior_anchor,
+        b: exterior_anchor,
+        traversal_policy: PortalTraversalPolicy {
+            allowed_roles: spec.allowed_roles.clone(),
+            bidirectional: spec.bidirectional,
+        },
+    }
+}
+
+pub fn validate_portal_role_policy(
+    npc_role: NpcRole,
+    portal: &NavigationPortal,
+) -> bool {
+    portal.traversal_policy.allowed_roles.is_empty() || portal.traversal_policy.allowed_roles.contains(&npc_role)
+}
+
 pub fn derive_portal_anchors(
     owner_id: StableObjectId,
     attachment: WallAttachmentPoint,
     spec: &NavigationPortalSpec,
     wall_surface: &crate::store::WallSurface,
 ) -> (NpcAnchor, NpcAnchor) {
-    let base_world = crate::store::wall_surface_world_pos(wall_surface, attachment.offset_along_segment);
+    let base_world =
+        crate::store::wall_surface_world_pos(wall_surface, attachment.offset_along_segment);
     let wall_normal = wall_surface.normal;
-    
-    // Simplification: interior is along normal, exterior is opposite normal?
-    // Usually normal points "out" or "in"? 
-    // In Stage 5B, normal was calculated as perp to wall direction.
-    // Let's assume interior is +normal and exterior is -normal.
-    
+
     let interior_pos = base_world + wall_normal * spec.interior_local_offset.y;
     let exterior_pos = base_world - wall_normal * spec.exterior_local_offset.y;
 
@@ -68,7 +90,9 @@ pub fn derive_portal_anchors(
             pos: interior_pos,
         },
         facing: None,
-        allowed_roles: AnchorRoleFilter { allowed: spec.allowed_roles.clone() },
+        allowed_roles: AnchorRoleFilter {
+            allowed: spec.allowed_roles.clone(),
+        },
         reservation_policy: AnchorReservationPolicy::None,
     };
 
@@ -84,7 +108,9 @@ pub fn derive_portal_anchors(
             pos: exterior_pos,
         },
         facing: None,
-        allowed_roles: AnchorRoleFilter { allowed: spec.allowed_roles.clone() },
+        allowed_roles: AnchorRoleFilter {
+            allowed: spec.allowed_roles.clone(),
+        },
         reservation_policy: AnchorReservationPolicy::None,
     };
 

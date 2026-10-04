@@ -97,6 +97,18 @@ pub enum NpcAnchorResolveError {
     UnsupportedTarget,
 }
 
+pub fn check_anchor_reachability(
+    anchor: &NpcAnchor,
+    graph: &crate::navigation::graph::NavigationGraph,
+) -> bool {
+    if anchor.point.space != graph.space {
+        return false;
+    }
+    // Simplification: if there's a node nearby, it's reachable.
+    // Real check would be pathfinding.
+    graph.find_nearest_node(anchor.point.pos).is_ok()
+}
+
 pub fn resolve_anchor_for_npc(
     npc_role: NpcRole,
     target: crate::npc::job::NpcMoveTarget,
@@ -269,4 +281,58 @@ fn derive_anchors_for_object(
         allowed_roles: AnchorRoleFilter::default(),
         reservation_policy: AnchorReservationPolicy::None,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::npc::job::NpcRole;
+
+    #[test]
+    fn test_anchor_cache_lifecycle() {
+        let mut cache = NpcAnchorCache::default();
+        let owner = NpcAnchorOwner::StoreObject(StableObjectId(1));
+        let anchor = NpcAnchor {
+            id: NpcAnchorId { owner, local_id: AnchorLocalId("test") },
+            owner,
+            kind: NpcAnchorKind::Debug,
+            point: NavigationPoint { space: NavigationSpace::World, pos: Vec2::ZERO },
+            facing: None,
+            allowed_roles: AnchorRoleFilter::default(),
+            reservation_policy: AnchorReservationPolicy::None,
+        };
+
+        cache.insert(anchor);
+        assert_eq!(cache.by_id.len(), 1);
+        assert_eq!(cache.by_owner.get(&owner).unwrap().len(), 1);
+
+        cache.remove_by_owner(owner);
+        assert_eq!(cache.by_id.len(), 0);
+        assert!(cache.by_owner.get(&owner).is_none());
+    }
+
+    #[test]
+    fn test_resolve_anchor_role_filter() {
+        let mut cache = NpcAnchorCache::default();
+        let owner = NpcAnchorOwner::StoreObject(StableObjectId(1));
+        let anchor_id = NpcAnchorId { owner, local_id: AnchorLocalId("test") };
+        
+        let anchor = NpcAnchor {
+            id: anchor_id,
+            owner,
+            kind: NpcAnchorKind::Debug,
+            point: NavigationPoint { space: NavigationSpace::World, pos: Vec2::ZERO },
+            facing: None,
+            allowed_roles: AnchorRoleFilter { allowed: vec![NpcRole::Staff] },
+            reservation_policy: AnchorReservationPolicy::None,
+        };
+
+        cache.insert(anchor);
+
+        // Staff can resolve
+        assert!(resolve_anchor_for_npc(NpcRole::Staff, crate::npc::job::NpcMoveTarget::InteractionPoint { object_id: StableObjectId(1), point_id: AnchorLocalId("test") }, &cache).is_ok());
+        
+        // Customer cannot resolve
+        assert!(matches!(resolve_anchor_for_npc(NpcRole::Customer, crate::npc::job::NpcMoveTarget::InteractionPoint { object_id: StableObjectId(1), point_id: AnchorLocalId("test") }, &cache), Err(NpcAnchorResolveError::RoleForbidden)));
+    }
 }

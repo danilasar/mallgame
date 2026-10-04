@@ -39,6 +39,12 @@ impl NavigationGraph {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavigationRegionKind {
+    StoreInterior,
+    ExteriorWorld,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigationDirtyReason {
     StoreAreaChanged,
     StaticBlockerBuilt,
@@ -68,11 +74,16 @@ impl NavigationDirtyState {
     }
 }
 
+pub struct PortalEdgeData {
+    pub anchor_a_pos: Vec2,
+    pub anchor_b_pos: Vec2,
+    pub bidirectional: bool,
+}
+
 pub fn rebuild_navigation_graph(
     store_area: &StoreArea,
-    blockers: &Query<(&WorldPos, &Footprint), With<BlocksPlacement>>,
-    portals: &Query<&super::portal::NavigationPortal>,
-    anchors_cache: &crate::npc::anchor::NpcAnchorCache,
+    blockers: &[(Vec2, &Footprint)],
+    portals: &[PortalEdgeData],
 ) -> NavigationGraph {
     let mut graph = NavigationGraph::new(NavigationSpace::World);
     let cell_size = 32.0;
@@ -84,9 +95,11 @@ pub fn rebuild_navigation_graph(
             for gx in 0..store_area.chunk_size_cells.x {
                 let cell_pos =
                     chunk_rect.min + Vec2::new(gx as f32 + 0.5, gy as f32 + 0.5) * cell_size;
-                if is_point_blocked_by_static_local(cell_pos, blockers) {
+
+                if crate::navigation::walkability::is_point_blocked_by_static(cell_pos, blockers) {
                     continue;
                 }
+
                 let grid_coord = IVec2::new(
                     ((cell_pos.x - store_area.anchor.x) / cell_size).floor() as i32,
                     ((cell_pos.y - store_area.anchor.y) / cell_size).floor() as i32,
@@ -120,27 +133,22 @@ pub fn rebuild_navigation_graph(
     }
 
     // 3. Add Portal Edges
-    for portal in portals.iter() {
-        if let Some(anchor_a) = anchors_cache.by_id.get(&portal.a)
-            && let Some(anchor_b) = anchors_cache.by_id.get(&portal.b)
+    for portal in portals {
+        if let Some(node_a) = find_nearest_node_id_local(&graph, portal.anchor_a_pos)
+            && let Some(node_b) = find_nearest_node_id_local(&graph, portal.anchor_b_pos)
         {
-            // Find nearest graph nodes for these anchors
-            if let Some(node_a) = find_nearest_node_id_local(&graph, anchor_a.point.pos)
-                && let Some(node_b) = find_nearest_node_id_local(&graph, anchor_b.point.pos)
-            {
-                let dist = anchor_a.point.pos.distance(anchor_b.point.pos);
+            let dist = portal.anchor_a_pos.distance(portal.anchor_b_pos);
+            graph.edges.push(NavigationEdge {
+                from: node_a,
+                to: node_b,
+                cost: dist,
+            });
+            if portal.bidirectional {
                 graph.edges.push(NavigationEdge {
-                    from: node_a,
-                    to: node_b,
+                    from: node_b,
+                    to: node_a,
                     cost: dist,
                 });
-                if portal.traversal_policy.bidirectional {
-                    graph.edges.push(NavigationEdge {
-                        from: node_b,
-                        to: node_a,
-                        cost: dist,
-                    });
-                }
             }
         }
     }

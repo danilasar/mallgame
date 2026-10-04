@@ -50,15 +50,40 @@ pub fn rebuild_navigation_graph_system(
     mut graph: ResMut<NavigationGraph>,
     mut dirty_state: ResMut<NavigationDirtyState>,
     store_area: Res<crate::store::area::StoreArea>,
-    blockers: Query<(&crate::objects::components::WorldPos, &crate::objects::components::Footprint), With<crate::objects::components::BlocksPlacement>>,
-    portals: Query<&self::portal::NavigationPortal>,
-    anchors: Res<crate::npc::anchor::NpcAnchorCache>,
+    blockers_query: Query<
+        (&crate::objects::components::WorldPos, &crate::objects::components::Footprint),
+        With<crate::objects::components::BlocksPlacement>,
+    >,
+    portals_query: Query<&self::portal::NavigationPortal>,
+    anchors_cache: Res<crate::npc::anchor::NpcAnchorCache>,
 ) {
     if !dirty_state.is_dirty() && graph.version > 0 {
         return;
     }
 
-    info!("Rebuilding navigation graph... reasons: {:?}", dirty_state.reasons);
-    *graph = rebuild_navigation_graph(&store_area, &blockers, &portals, &anchors);
+    info!(
+        "Rebuilding navigation graph... reasons: {:?}",
+        dirty_state.reasons
+    );
+
+    let blockers: Vec<(Vec2, &crate::objects::components::Footprint)> = blockers_query
+        .iter()
+        .map(|(pos, footprint)| (pos.0, footprint))
+        .collect();
+
+    let mut portals = Vec::new();
+    for portal in portals_query.iter() {
+        if let Some(anchor_a) = anchors_cache.by_id.get(&portal.a)
+            && let Some(anchor_b) = anchors_cache.by_id.get(&portal.b)
+        {
+            portals.push(self::graph::PortalEdgeData {
+                anchor_a_pos: anchor_a.point.pos,
+                anchor_b_pos: anchor_b.point.pos,
+                bidirectional: portal.traversal_policy.bidirectional,
+            });
+        }
+    }
+
+    *graph = rebuild_navigation_graph(&store_area, &blockers, &portals);
     dirty_state.clear();
 }

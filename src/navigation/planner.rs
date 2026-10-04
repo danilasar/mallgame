@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use super::types::{RoutePlanRequest, RoutePlanResult, RoutePlanError, NavigationRoute, NavigationPoint};
+use super::types::{RoutePlanRequest, RoutePlanResult, RoutePlanError, NavigationRoute};
 use super::graph::{NavigationGraph, NavigationNodeId};
 use std::collections::{VecDeque, HashMap, BinaryHeap};
 use std::cmp::Ordering;
@@ -41,7 +41,7 @@ impl RoutePlanner for NavigationGraph {
 }
 
 impl NavigationGraph {
-    fn find_nearest_node(&self, pos: Vec2) -> Result<NavigationNodeId, RoutePlanError> {
+    pub fn find_nearest_node(&self, pos: Vec2) -> Result<NavigationNodeId, RoutePlanError> {
         let mut best: Option<(f32, NavigationNodeId)> = None;
         for node in &self.nodes {
             let d = node.pos.distance_squared(pos);
@@ -129,5 +129,36 @@ impl Ord for NodeScore {
 impl PartialOrd for NodeScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::types::*;
+    use super::super::graph::*;
+
+    #[test]
+    fn test_a_star_simple() {
+        let mut graph = NavigationGraph::new(NavigationSpace::World);
+        
+        // Two nodes
+        graph.nodes.push(NavigationNode { id: 0, pos: Vec2::ZERO });
+        graph.nodes.push(NavigationNode { id: 1, pos: Vec2::new(100.0, 0.0) });
+        
+        // One edge
+        graph.edges.push(NavigationEdge { from: 0, to: 1, cost: 100.0 });
+        graph.edges.push(NavigationEdge { from: 1, to: 0, cost: 100.0 });
+
+        let request = RoutePlanRequest {
+            start: NavigationPoint { space: NavigationSpace::World, pos: Vec2::new(5.0, 0.0) },
+            target: NavigationPoint { space: NavigationSpace::World, pos: Vec2::new(95.0, 0.0) },
+            agent: AgentNavigationProfile { radius: 10.0, clearance: 2.0, can_use_staff_only: false },
+        };
+
+        let result = graph.plan_route(request);
+        assert!(result.is_ok());
+        let route = result.unwrap();
+        assert_eq!(route.waypoints.len(), 3); // node 0, node 1, and final target pos
     }
 }

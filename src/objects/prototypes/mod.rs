@@ -180,6 +180,7 @@ pub enum ObjectCapabilitySpec {
     Doorway(DoorwaySpec),
     DoorMovable,
     WallOpening(WallOpeningSpec),
+    WallMountedVisual(WallMountedVisualSpec),
     NavigationPortal(crate::navigation::portal::NavigationPortalSpec),
 }
 
@@ -219,6 +220,33 @@ pub enum WallOpeningAnchor {
     Center,
     /// Bottom of the opening sits at `attachment.height_on_wall` (use for floor-level doors).
     BottomCenter,
+}
+
+/// Controls how a wall-mounted visual sprite is vertically anchored relative to
+/// `attachment.height_on_wall`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WallVisualAnchor {
+    /// Visual centre at `height_on_wall + visual_height / 2`.
+    Center,
+    /// Visual bottom at `height_on_wall`.
+    BottomCenter,
+    /// Same as `BottomCenter` for the current rect backend.
+    AttachmentPoint,
+}
+
+/// Explicit visual-bounds spec for a wall-mounted object.
+/// Separate from `WallOpeningSpec` (cutout geometry) and `WallMountedSpec` (wall occupancy).
+/// Used for validation and debug overlays; does not drive sprite rendering directly.
+#[derive(Debug, Clone)]
+pub struct WallMountedVisualSpec {
+    /// Visual width in wall-local units. May be larger than the opening (includes frame, sill, etc.).
+    pub visual_width: f32,
+    /// Visual height in wall-local units.
+    pub visual_height: f32,
+    /// How the sprite anchors vertically to the wall attachment point.
+    pub anchor: WallVisualAnchor,
+    /// Additional offset from the standard anchor position (wall-local units).
+    pub offset: Vec2,
 }
 
 #[derive(Debug, Clone)]
@@ -537,6 +565,11 @@ pub fn spawn_store_object_from_prototype(
                     // without WallOpeningComponent rather than panicking.
                 }
             }
+            ObjectCapabilitySpec::WallMountedVisual(vis_spec) => {
+                if let ObjectPlacement::WallMounted { attachment } = placement {
+                    entity_commands.insert(derive_visual_bounds(attachment, vis_spec));
+                }
+            }
             ObjectCapabilitySpec::NavigationPortal(_) => {
                 // Derived logic happens in anchor.rs lifecycle system
             }
@@ -608,6 +641,41 @@ pub fn wall_opening_spec(proto: &ObjectPrototype) -> Option<&WallOpeningSpec> {
             None
         }
     })
+}
+
+pub fn wall_mounted_visual_spec(proto: &ObjectPrototype) -> Option<&WallMountedVisualSpec> {
+    proto.capabilities.iter().find_map(|cap| {
+        if let ObjectCapabilitySpec::WallMountedVisual(s) = cap {
+            Some(s)
+        } else {
+            None
+        }
+    })
+}
+
+/// Compute wall-local visual bounds from a `WallMountedVisualSpec` and placement attachment.
+pub fn derive_visual_bounds(
+    attachment: WallAttachmentPoint,
+    spec: &WallMountedVisualSpec,
+) -> crate::objects::components::WallVisualBounds {
+    let half_w = spec.visual_width * 0.5;
+    let (h_min, h_max) = match spec.anchor {
+        WallVisualAnchor::BottomCenter | WallVisualAnchor::AttachmentPoint => (
+            attachment.height_on_wall + spec.offset.y,
+            attachment.height_on_wall + spec.visual_height + spec.offset.y,
+        ),
+        WallVisualAnchor::Center => (
+            attachment.height_on_wall - spec.visual_height * 0.5 + spec.offset.y,
+            attachment.height_on_wall + spec.visual_height * 0.5 + spec.offset.y,
+        ),
+    };
+    crate::objects::components::WallVisualBounds {
+        segment_key: attachment.segment_key,
+        offset_min: attachment.offset_along_segment - half_w + spec.offset.x,
+        offset_max: attachment.offset_along_segment + half_w + spec.offset.x,
+        height_min: h_min,
+        height_max: h_max,
+    }
 }
 
 pub fn wall_occupancy_kind_for_prototype(proto: &ObjectPrototype) -> WallOccupancyKind {
@@ -1008,6 +1076,12 @@ pub fn setup_object_catalog(mut commands: Commands) {
                     glass_color: Some(Color::srgba(0.75, 0.90, 1.0, 0.45)),
                     frame_color: None,
                 }),
+                ObjectCapabilitySpec::WallMountedVisual(WallMountedVisualSpec {
+                    visual_width: 72.0,
+                    visual_height: 72.0,
+                    anchor: WallVisualAnchor::BottomCenter,
+                    offset: Vec2::ZERO,
+                }),
             ],
             initial_state: ObjectInitialStateSpec::None,
         },
@@ -1073,6 +1147,12 @@ pub fn setup_object_catalog(mut commands: Commands) {
                     glass_color: None,
                     frame_color: None,
                 }),
+                ObjectCapabilitySpec::WallMountedVisual(WallMountedVisualSpec {
+                    visual_width: 64.0,
+                    visual_height: 96.0,
+                    anchor: WallVisualAnchor::BottomCenter,
+                    offset: Vec2::ZERO,
+                }),
                 ObjectCapabilitySpec::NavigationPortal(crate::navigation::portal::NavigationPortalSpec {
                     kind: crate::navigation::portal::NavigationPortalKind::Doorway,
                     interior_local_offset: Vec2::new(0.0, 32.0),
@@ -1082,6 +1162,103 @@ pub fn setup_object_catalog(mut commands: Commands) {
                         crate::npc::job::NpcRole::Staff,
                     ],
                     bidirectional: true,
+                }),
+            ],
+            initial_state: ObjectInitialStateSpec::None,
+        },
+    );
+
+    // 5. Additional wall objects
+    catalog.prototypes.insert(
+        BuildObjectId::new("wall.window.fake_decor"),
+        ObjectPrototype {
+            id: BuildObjectId::new("wall.window.fake_decor"),
+            display: ObjectDisplaySpec {
+                display_name: "Fake Window".to_string(),
+                description: Some(
+                    "Decorative panel that looks like a window. Does not cut the wall.".to_string(),
+                ),
+                icon: None,
+            },
+            catalog: ObjectCatalogSpec {
+                category: ObjectCategory::Decor,
+                ribbon_tab: BuildRibbonTab::Walls,
+                ribbon_group: BuildRibbonGroup::Walls,
+                sort_order: 1010,
+                availability: CatalogAvailability::Available,
+            },
+            placement: PlacementSpec {
+                kind: PlacementKind::WallMounted,
+                footprint_half_extents: Vec2::new(28.0, 18.0),
+                placement_blocker: false,
+                navigation_blocker: false,
+            },
+            visuals: VisualSpec {
+                asset_path: "tree.png".to_string(),
+                asset_id: "wall_window_fake_decor".to_string(),
+                sprite_size: Vec2::new(72.0, 72.0),
+                foot_anchor: Vec2::new(0.0, -36.0),
+                sort_bias: 0.1,
+            },
+            rotation: RotationSpec { kind: RotationKind::None, rotated_asset_path: None },
+            capabilities: vec![
+                ObjectCapabilitySpec::Decor(DecorSpec { decor_kind: DecorKind::Misc }),
+                ObjectCapabilitySpec::WallMounted(WallMountedSpec {
+                    width: 72.0,
+                    height: 72.0,
+                    allowed_sides: vec![
+                        crate::store::StoreBoundarySide::Top,
+                        crate::store::StoreBoundarySide::Right,
+                    ],
+                    default_height_on_wall: 56.0,
+                    movable: true,
+                }),
+            ],
+            initial_state: ObjectInitialStateSpec::None,
+        },
+    );
+
+    catalog.prototypes.insert(
+        BuildObjectId::new("wall.poster.basic"),
+        ObjectPrototype {
+            id: BuildObjectId::new("wall.poster.basic"),
+            display: ObjectDisplaySpec {
+                display_name: "Wall Poster".to_string(),
+                description: Some("Decorative poster for interior walls.".to_string()),
+                icon: None,
+            },
+            catalog: ObjectCatalogSpec {
+                category: ObjectCategory::Decor,
+                ribbon_tab: BuildRibbonTab::Walls,
+                ribbon_group: BuildRibbonGroup::Walls,
+                sort_order: 1100,
+                availability: CatalogAvailability::Available,
+            },
+            placement: PlacementSpec {
+                kind: PlacementKind::WallMounted,
+                footprint_half_extents: Vec2::new(24.0, 8.0),
+                placement_blocker: false,
+                navigation_blocker: false,
+            },
+            visuals: VisualSpec {
+                asset_path: "tree.png".to_string(),
+                asset_id: "wall_poster_basic".to_string(),
+                sprite_size: Vec2::new(48.0, 64.0),
+                foot_anchor: Vec2::new(0.0, -32.0),
+                sort_bias: 0.05,
+            },
+            rotation: RotationSpec { kind: RotationKind::None, rotated_asset_path: None },
+            capabilities: vec![
+                ObjectCapabilitySpec::Decor(DecorSpec { decor_kind: DecorKind::Misc }),
+                ObjectCapabilitySpec::WallMounted(WallMountedSpec {
+                    width: 48.0,
+                    height: 64.0,
+                    allowed_sides: vec![
+                        crate::store::StoreBoundarySide::Top,
+                        crate::store::StoreBoundarySide::Right,
+                    ],
+                    default_height_on_wall: 40.0,
+                    movable: true,
                 }),
             ],
             initial_state: ObjectInitialStateSpec::None,
@@ -1225,6 +1402,12 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                             proto.id
                         ));
                     }
+                    if wall_mounted_visual_spec(proto).is_none() {
+                        errors.push(format!(
+                            "Prototype {:?} has WallOpening but no WallMountedVisual capability",
+                            proto.id
+                        ));
+                    }
                     match &spec.shape {
                         WallOpeningShapeSpec::Rect { width, height, .. } => {
                             if *width <= 0.0 || *height <= 0.0 {
@@ -1233,6 +1416,15 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                                     proto.id
                                 ));
                             }
+                            // Warning: visual bounds should cover the opening
+                            if let Some(vis) = wall_mounted_visual_spec(proto) {
+                                if vis.visual_width < *width || vis.visual_height < *height {
+                                    errors.push(format!(
+                                        "[Warning] Prototype {:?}: visual bounds ({:.0}x{:.0}) do not fully cover opening bounds ({:.0}x{:.0})",
+                                        proto.id, vis.visual_width, vis.visual_height, width, height
+                                    ));
+                                }
+                            }
                         }
                         WallOpeningShapeSpec::Polygon { .. } => {
                             errors.push(format!(
@@ -1240,6 +1432,26 @@ pub fn validate_object_catalog(catalog: &ObjectCatalog) -> Vec<String> {
                                 proto.id
                             ));
                         }
+                    }
+                }
+                ObjectCapabilitySpec::WallMountedVisual(spec) => {
+                    if proto.placement.kind != PlacementKind::WallMounted {
+                        errors.push(format!(
+                            "Prototype {:?} has WallMountedVisual but is not wall-mounted",
+                            proto.id
+                        ));
+                    }
+                    if spec.visual_width <= 0.0 {
+                        errors.push(format!(
+                            "Prototype {:?} has WallMountedVisual with visual_width <= 0",
+                            proto.id
+                        ));
+                    }
+                    if spec.visual_height <= 0.0 {
+                        errors.push(format!(
+                            "Prototype {:?} has WallMountedVisual with visual_height <= 0",
+                            proto.id
+                        ));
                     }
                 }
                 _ => {}

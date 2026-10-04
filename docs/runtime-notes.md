@@ -34,6 +34,8 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - `wall.door.basic_customer` is a basic wall door. Door attachments are normalized to the wall floor line (`height_on_wall = 0.0`) before build/move/load/factory paths, and the door creates an interior access zone without a navigation portal or wall cutout.
 - Door move is a separate strategy from generic wall move. `Doorway + DoorMovable` must route to `DoorMoveSession` before the generic `WallMountedPlacement + WallMovable` branch, because door movement must validate and update both `Wallprint` and `InteriorAccessZone`.
 - Door access-zone preview geometry uses `AccessZonePreviewShape`; preview entities must not carry real `InteriorAccessZone` authority.
+- Stage 6 introduces transient NPC agents and a navigation graph. NPCs are not `StoreObject` and are not persisted in save files.
+- Navigation graph is batch-rebuilt only when necessary (dirty flag) at the start of a frame.
 
 ## Remaining Technical Debt
 
@@ -42,7 +44,9 @@ This file captures the current runtime-quality state of the codebase. It is mean
 - Camera clamping is pragmatic viewport-aware logic, not an exact geometry solver.
 - Stage 5B.1 must keep picking separation explicit: `WorldObject`, `WallSurface`, and `Exterior` are distinct interaction domains.
 - Floor move, generic wall move, and door move are separate strategies under one user-facing Move action. Do not collapse them into one `StoreObject`/`WorldPos` path.
-- Door/window cutouts, navigation portals, and wall occupancy beyond MVP `WallprintRect` overlap are still out of scope.
+- Navigation graph uses a fixed cell size (32.0 units) lattice sampling; it is not a navmesh or dynamic graph.
+- NPC movement currently uses Manhattan routes as fallback if graph pathfinding fails.
+- Anchor reachability is a proximity check, not a full path existence proof.
 
 ## When Extending The Runtime
 

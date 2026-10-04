@@ -77,3 +77,88 @@ pub enum ClipSpec {
 pub struct NpcCatalog {
     pub archetypes: HashMap<NpcArchetypeId, NpcArchetypeSpec>,
 }
+
+#[derive(Debug)]
+pub enum ArchetypeValidationError {
+    EmptyId,
+    InvalidSpeed,
+    MissingBaseAction(String),
+    MissingFallbackAction,
+}
+
+pub fn validate_npc_archetype(spec: &NpcArchetypeSpec) -> Result<(), ArchetypeValidationError> {
+    if spec.id.0.is_empty() {
+        return Err(ArchetypeValidationError::EmptyId);
+    }
+    if spec.movement.speed <= 0.0 {
+        return Err(ArchetypeValidationError::InvalidSpeed);
+    }
+    if !spec.visuals.actions.contains_key(&NpcAnimActionId("base.idle".to_string())) {
+        return Err(ArchetypeValidationError::MissingBaseAction("base.idle".to_string()));
+    }
+    if !spec.visuals.actions.contains_key(&NpcAnimActionId("base.walk".to_string())) {
+        return Err(ArchetypeValidationError::MissingBaseAction("base.walk".to_string()));
+    }
+    
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::npc::job::NpcRole;
+    use crate::npc::job::NpcJobProfileSpec;
+    use std::collections::HashSet;
+
+    fn test_archetype() -> NpcArchetypeSpec {
+        let mut actions = HashMap::new();
+        actions.insert(NpcAnimActionId("base.idle".to_string()), DirectionalAnimationSpec {
+            clips: HashMap::new(),
+            default_direction: None,
+        });
+        actions.insert(NpcAnimActionId("base.walk".to_string()), DirectionalAnimationSpec {
+            clips: HashMap::new(),
+            default_direction: None,
+        });
+
+        NpcArchetypeSpec {
+            id: NpcArchetypeId("test".to_string()),
+            role: NpcRole::Customer,
+            movement: NpcMovementSpec {
+                speed: 100.0,
+                snap_epsilon: 1.0,
+            },
+            visuals: NpcVisualSpec {
+                feet_anchor_px: Vec2::ZERO,
+                visual_offset_px: Vec2::ZERO,
+                sort_bias: 0.0,
+                actions,
+                fallback_action: NpcAnimActionId("base.idle".to_string()),
+            },
+            picking: NpcPickingSpec {
+                pickable: true,
+                bounds: None,
+                pointer_occluder: false,
+            },
+            job_profile: NpcJobProfileSpec {
+                role: NpcRole::Customer,
+                allowed_personal_jobs: HashSet::new(),
+                allowed_assigned_jobs: HashSet::new(),
+                job_sources: HashSet::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn test_valid_archetype() {
+        let spec = test_archetype();
+        assert!(validate_npc_archetype(&spec).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_speed() {
+        let mut spec = test_archetype();
+        spec.movement.speed = 0.0;
+        assert!(matches!(validate_npc_archetype(&spec), Err(ArchetypeValidationError::InvalidSpeed)));
+    }
+}

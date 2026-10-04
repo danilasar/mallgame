@@ -790,6 +790,13 @@ fn apply_move_object(
                             });
                         }
                     }
+                    if let Some(vis_spec) =
+                        crate::objects::prototypes::wall_mounted_visual_spec(proto)
+                    {
+                        e.insert(crate::objects::prototypes::derive_visual_bounds(
+                            attachment, vis_spec,
+                        ));
+                    }
                 }
             } else {
                 let new_wallprint =
@@ -848,6 +855,13 @@ fn apply_move_object(
                                 frame_color: opening_spec.frame_color,
                             });
                         }
+                    }
+                    if let Some(vis_spec) =
+                        crate::objects::prototypes::wall_mounted_visual_spec(proto)
+                    {
+                        e.insert(crate::objects::prototypes::derive_visual_bounds(
+                            attachment, vis_spec,
+                        ));
                     }
                     if let Some(hit) = set.p3().iter().find(|s| s.key == attachment.segment_key) {
                         let v_pos = crate::store::wall_surface_world_pos(

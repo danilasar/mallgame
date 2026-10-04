@@ -998,3 +998,104 @@ fn test_window_and_wall_decor_do_not_create_access_zone() {
         );
     }
 }
+
+#[test]
+fn test_build_window_spawns_wall_visual_bounds() {
+    let mut app = setup_test_app();
+    let window_id = StableObjectId(9100);
+    let segment_key = test_segment_key();
+
+    app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+    spawn_test_wall_surface(&mut app, segment_key);
+
+    let offset = 128.0f32;
+    let height = 48.0f32;
+    app.world_mut()
+        .resource_mut::<DomainCommandQueue>()
+        .commands
+        .push_back(DomainCommand::BuildObject(BuildObjectCommand {
+            object_id: window_id,
+            prototype_id: BuildObjectId::new("wall.window.basic_visual"),
+            placement: crate::objects::components::ObjectPlacement::WallMounted {
+                attachment: crate::objects::components::WallAttachmentPoint {
+                    segment_key,
+                    offset_along_segment: offset,
+                    height_on_wall: height,
+                },
+            },
+        }));
+    app.update();
+
+    let world = app.world_mut();
+    let entity = object_entity_by_id(world, window_id).expect("window should be built");
+
+    let vb = world
+        .entity(entity)
+        .get::<crate::objects::components::WallVisualBounds>()
+        .expect("window must have WallVisualBounds");
+
+    assert_eq!(vb.segment_key, segment_key);
+    // WallMountedVisual for basic_visual: 72x72 BottomCenter
+    // offset_min = offset - 36, offset_max = offset + 36
+    assert!((vb.offset_min - (offset - 36.0)).abs() < 0.01);
+    assert!((vb.offset_max - (offset + 36.0)).abs() < 0.01);
+    // height_min = height_on_wall, height_max = height_on_wall + 72
+    assert!((vb.height_min - height).abs() < 0.01);
+    assert!((vb.height_max - (height + 72.0)).abs() < 0.01);
+}
+
+#[test]
+fn test_move_window_updates_wall_visual_bounds() {
+    let mut app = setup_test_app();
+    let window_id = StableObjectId(9200);
+    let segment_key = test_segment_key();
+
+    app.add_systems(Update, (apply_domain_commands, ApplyDeferred).chain());
+    spawn_test_wall_surface(&mut app, segment_key);
+
+    // Build
+    app.world_mut()
+        .resource_mut::<DomainCommandQueue>()
+        .commands
+        .push_back(DomainCommand::BuildObject(BuildObjectCommand {
+            object_id: window_id,
+            prototype_id: BuildObjectId::new("wall.window.basic_visual"),
+            placement: crate::objects::components::ObjectPlacement::WallMounted {
+                attachment: crate::objects::components::WallAttachmentPoint {
+                    segment_key,
+                    offset_along_segment: 64.0,
+                    height_on_wall: 48.0,
+                },
+            },
+        }));
+    app.update();
+
+    let new_offset = 192.0f32;
+    let new_height = 64.0f32;
+
+    // Move
+    app.world_mut()
+        .resource_mut::<DomainCommandQueue>()
+        .commands
+        .push_back(DomainCommand::MoveObject(MoveObjectCommand {
+            object_id: window_id,
+            new_placement: crate::objects::components::ObjectPlacement::WallMounted {
+                attachment: crate::objects::components::WallAttachmentPoint {
+                    segment_key,
+                    offset_along_segment: new_offset,
+                    height_on_wall: new_height,
+                },
+            },
+        }));
+    app.update();
+
+    let world = app.world_mut();
+    let entity = object_entity_by_id(world, window_id).expect("window should exist after move");
+    let vb = world
+        .entity(entity)
+        .get::<crate::objects::components::WallVisualBounds>()
+        .expect("window must still have WallVisualBounds after move");
+
+    assert!((vb.offset_min - (new_offset - 36.0)).abs() < 0.01, "offset_min after move");
+    assert!((vb.height_min - new_height).abs() < 0.01, "height_min after move");
+}
